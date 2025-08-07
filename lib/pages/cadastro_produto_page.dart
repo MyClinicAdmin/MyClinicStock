@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:kwalps_st/pages/home_page.dart'; // ⚠️ Ajusta o caminho conforme tua estrutura
 
 class CadastroProdutoPage extends StatefulWidget {
   const CadastroProdutoPage({super.key});
@@ -99,6 +100,21 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
                 onPressed: _salvarProduto,
                 icon: const Icon(Icons.save),
                 label: const Text('Salvar Produto'),
+              ),
+              const SizedBox(height: 10),
+              TextButton.icon(
+                onPressed: () {
+                  Navigator.pushAndRemoveUntil(
+                    context,
+                    MaterialPageRoute(builder: (context) => const HomePage()),
+                    (route) => false,
+                  );
+                },
+                icon: const Icon(Icons.cancel, color: Colors.red),
+                label: const Text(
+                  'Voltar',
+                  style: TextStyle(color: Colors.red),
+                ),
               ),
             ],
           ),
