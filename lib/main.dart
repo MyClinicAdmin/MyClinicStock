@@ -20,7 +20,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Kwalps_st',
       debugShowCheckedModeBanner: false,
-      home: const CadastroProdutoPage(),
+      home: const HomePage()
     );
   }
 }
