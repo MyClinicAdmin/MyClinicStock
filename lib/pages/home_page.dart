@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'produtos_em_falta_page.dart';
+import 'produtos_a_vencer_page.dart';
+import 'cadastro_produto_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -13,8 +15,16 @@ class _HomePageState extends State<HomePage> {
 
   final List<Widget> _pages = [
     const ProdutosEmFaltaPage(),
-    const Placeholder(),
-    const Placeholder(),
+    const ProdutosAVencerPage(),
+    const Placeholder(), // Enviar Email (ainda não implementado)
+    const CadastroProdutoPage(),
+  ];
+
+  final List<String> _titles = [
+    'Produtos em Falta',
+    'Produtos a Vencer',
+    'Enviar Email',
+    'Cadastrar Produto',
   ];
 
   void _onItemTapped(int index) {
