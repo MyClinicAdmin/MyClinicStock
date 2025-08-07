@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:url_launcher/url_launcher_string.dart';
 
 class EnviarEmailPage extends StatelessWidget {
   const EnviarEmailPage({super.key});
@@ -24,8 +25,8 @@ class EnviarEmailPage extends StatelessWidget {
       "mailto:fornecedores@empresa.com?subject=Produtos em Falta&body=Prezados,%0A%0ASegue a lista de produtos em falta:%0A\n$listaProdutos",
     );
 
-    if (await canLaunchUrl(Uri.parse(email))) {
-      await launchUrl(Uri.parse(email));
+    if (await canLaunchUrlString(email)) {
+      await launchUrlString(email);
     } else {
       throw 'Não foi possível abrir o app de email.';
     }
