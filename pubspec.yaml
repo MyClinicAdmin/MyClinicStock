@@ -36,8 +36,13 @@ dependencies:
   cupertino_icons: ^1.0.8
   firebase_core: ^4.0.0
   cloud_firestore: ^6.0.0
-  intl: ^0.18.1
-  url_launcher: ^6.2.5
+  crypto: ^3.0.6
+  convert: ^3.1.1
+  shared_preferences: ^2.2.3
+  url_launcher: ^6.3.0
+  intl: ^0.19.0
+  file_picker: ^8.1.2
+  excel: ^4.0.2        # para ler .xlsx (web/desktop/android)
 
 dev_dependencies:
   flutter_test:
