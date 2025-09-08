@@ -1,3 +1,4 @@
+// lib/pages/cadastro_produto_page.dart
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -14,133 +15,179 @@ class CadastroProdutoPage extends StatefulWidget {
 class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
   final _repo = SuppliersRepository();
 
+  // -----------------------------
+  // CONTROLLERS — PRODUTO
+  // -----------------------------
   final _nomeController = TextEditingController();
-  final _categoriaController = TextEditingController();     // NOVO
-  final _loteController = TextEditingController();          // NOVO
-  final _fornTelefoneController = TextEditingController();  // NOVO
-  final _quantidadeController = TextEditingController();
+  final _categoriaController = TextEditingController();
+  final _fornTelefoneController = TextEditingController();
   final _estoqueMinimoController = TextEditingController(text: '5');
-  final _validadeController = TextEditingController(); // exibe a data formatada
 
   String? _fornecedorSelecionadoNome;
   String? _fornecedorSelecionadoEmail;
-  DateTime? _validadeSelecionada;
 
   // cache da stream para resolver email pelo nome
   List<Fornecedor> _fornecedoresCache = const [];
 
-  final _formKey = GlobalKey<FormState>();
+  final _formProdutoKey = GlobalKey<FormState>();
+  bool _isSavingProduto = false;
+
+  // -----------------------------
+  // CONTROLLERS — LOTE
+  // -----------------------------
+  final _loteCodigoController = TextEditingController();
+  final _loteQuantidadeController = TextEditingController();
+  final _loteValidadeController = TextEditingController(); // exibe a data
+  DateTime? _loteValidadeSelecionada;
+  String? _produtoSelecionadoId;
+
+  final _formLoteKey = GlobalKey<FormState>();
+  bool _isSavingLote = false;
+
+  // datas
   final _dateFmt = DateFormat('dd/MM/yyyy');
 
   @override
   void dispose() {
+    // produto
     _nomeController.dispose();
     _categoriaController.dispose();
-    _loteController.dispose();
     _fornTelefoneController.dispose();
-    _quantidadeController.dispose();
     _estoqueMinimoController.dispose();
-    _validadeController.dispose();
+
+    // lote
+    _loteCodigoController.dispose();
+    _loteQuantidadeController.dispose();
+    _loteValidadeController.dispose();
     super.dispose();
   }
 
+  // -------------------------------------------------------
+  // SALVAR PRODUTO (sem quantidade/validade/lote)
+  // -------------------------------------------------------
   Future<void> _salvarProduto() async {
-    if (!_formKey.currentState!.validate() ||
-        _validadeSelecionada == null ||
+    if (_isSavingProduto) return;
+
+    if (!_formProdutoKey.currentState!.validate() ||
         (_fornecedorSelecionadoNome == null ||
             _fornecedorSelecionadoNome!.trim().isEmpty)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Preencha todos os campos corretamente!')),
-      );
+      _err('Preencha todos os campos do PRODUTO corretamente!');
       return;
     }
 
-    final fornecedorNome = _fornecedorSelecionadoNome!.trim();
+    setState(() => _isSavingProduto = true);
+    FocusScope.of(context).unfocus();
 
-    // se ainda não temos email em memória, tenta resolver via cache
-    String? fornecedorEmail = _fornecedorSelecionadoEmail;
-    if ((fornecedorEmail == null || fornecedorEmail.isEmpty) &&
-        _fornecedoresCache.isNotEmpty) {
-      final norm = _repo.normalize(fornecedorNome);
-      final match = _fornecedoresCache.firstWhere(
-        (f) => _repo.normalize(f.nome) == norm,
-        orElse: () => Fornecedor(id: '', nome: fornecedorNome, email: null),
-      );
-      fornecedorEmail = match.email;
-    }
+    try {
+      final fornecedorNome = _fornecedorSelecionadoNome!.trim();
 
-    final qtd = int.parse(_quantidadeController.text.trim());
-    final minimo = int.parse(_estoqueMinimoController.text.trim());
-    final critico = qtd <= minimo;
+      // tenta resolver email via cache se não tiver
+      String? fornecedorEmail = _fornecedorSelecionadoEmail;
+      if ((fornecedorEmail == null || fornecedorEmail.isEmpty) &&
+          _fornecedoresCache.isNotEmpty) {
+        final norm = _repo.normalize(fornecedorNome);
+        final match = _fornecedoresCache.firstWhere(
+          (f) => _repo.normalize(f.nome) == norm,
+          orElse: () => Fornecedor(id: '', nome: fornecedorNome, email: null),
+        );
+        fornecedorEmail = match.email;
+      }
 
-    final categoria = _categoriaController.text.trim();
-    final lote = _loteController.text.trim();
-    final fornTelefone = _fornTelefoneController.text.trim();
+      final minimo = int.parse(_estoqueMinimoController.text.trim());
+      final categoria = _categoriaController.text.trim();
+      final fornTelefone = _fornTelefoneController.text.trim();
 
-    final data = <String, dynamic>{
-      'nome': _nomeController.text.trim(),
-      'categoria': categoria,                              // NOVO
-      'lote': lote.isEmpty ? null : lote,                  // NOVO (cópia informativa)
-      'fornecedor_telefone': fornTelefone.isEmpty ? null : fornTelefone, // NOVO
-      'quantidade': qtd,
-      'estoque_minimo': minimo,
-      'critico': critico,
-      'validade': _validadeSelecionada,
-      'fornecedor': fornecedorNome,
-      'fornecedor_normalizado': _repo.normalize(fornecedorNome),
-      if (fornecedorEmail != null && fornecedorEmail.isNotEmpty)
-        'fornecedor_email': fornecedorEmail,
-      'criado_em': FieldValue.serverTimestamp(),
-    };
-
-    // 1) Cria o produto
-    final ref = await FirebaseFirestore.instance.collection('produtos').add(data);
-
-    // 2) Cria LOTE inicial (se houver validade e/ou nº de lote)
-    if (_validadeSelecionada != null || lote.isNotEmpty) {
-      await ref.collection('lotes').add({
-        'codigo': lote.isEmpty ? null : lote,                 // Nº do lote (opcional)
-        'quantidade': qtd,
-        'validade': _validadeSelecionada,
+      final data = <String, dynamic>{
+        'nome': _nomeController.text.trim(),
+        'categoria': categoria,
+        'fornecedor_telefone': fornTelefone.isEmpty ? null : fornTelefone,
+        'estoque_minimo': minimo,
+        'fornecedor': fornecedorNome,
+        'fornecedor_normalizado': _repo.normalize(fornecedorNome),
+        if (fornecedorEmail != null && fornecedorEmail.isNotEmpty)
+          'fornecedor_email': fornecedorEmail,
         'criado_em': FieldValue.serverTimestamp(),
-      });
+      };
+
+      await FirebaseFirestore.instance.collection('produtos').add(data);
+
+      _ok('Produto salvo com sucesso!');
+      _resetProdutoForm();
+    } catch (e) {
+      _err('Falha ao salvar produto: $e');
+    } finally {
+      if (mounted) setState(() => _isSavingProduto = false);
     }
+  }
 
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Produto salvo com sucesso!')),
-    );
-
+  void _resetProdutoForm() {
     _nomeController.clear();
     _categoriaController.clear();
-    _loteController.clear();
     _fornTelefoneController.clear();
-    _quantidadeController.clear();
     _estoqueMinimoController.text = '5';
-    _validadeController.clear();
+
     setState(() {
-      _validadeSelecionada = null;
       _fornecedorSelecionadoNome = null;
       _fornecedorSelecionadoEmail = null;
     });
+
+    _formProdutoKey.currentState?.reset();
   }
 
-  Future<void> _selecionarDataValidade() async {
-    final data = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now().add(const Duration(days: 1)),
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 365 * 5)),
-    );
-    if (data != null) {
-      setState(() {
-        _validadeSelecionada = data;
-        _validadeController.text = _dateFmt.format(data);
+  // -------------------------------------------------------
+  // SALVAR LOTE (usa select de PRODUTO)
+  // -------------------------------------------------------
+  Future<void> _salvarLote() async {
+    if (_isSavingLote) return;
+
+    if (!_formLoteKey.currentState!.validate() ||
+        _produtoSelecionadoId == null ||
+        _loteValidadeSelecionada == null) {
+      _err('Preencha todos os campos do LOTE corretamente!');
+      return;
+    }
+
+    setState(() => _isSavingLote = true);
+    FocusScope.of(context).unfocus();
+
+    try {
+      final qtd = int.parse(_loteQuantidadeController.text.trim());
+      final codigo = _loteCodigoController.text.trim();
+
+      final refProd = FirebaseFirestore.instance
+          .collection('produtos')
+          .doc(_produtoSelecionadoId);
+
+      await refProd.collection('lotes').add({
+        'codigo': codigo.isEmpty ? null : codigo,
+        'quantidade': qtd,
+        'validade': _loteValidadeSelecionada,
+        'criado_em': FieldValue.serverTimestamp(),
       });
+
+      _ok('Lote salvo com sucesso!');
+      _resetLoteForm();
+    } catch (e) {
+      _err('Falha ao salvar lote: $e');
+    } finally {
+      if (mounted) setState(() => _isSavingLote = false);
     }
   }
 
-  /// Adiciona fornecedor no repositório (Nome + Email opcional)
+  void _resetLoteForm() {
+    _loteCodigoController.clear();
+    _loteQuantidadeController.clear();
+    _loteValidadeController.clear();
+    setState(() {
+      _produtoSelecionadoId = null;
+      _loteValidadeSelecionada = null;
+    });
+    _formLoteKey.currentState?.reset();
+  }
+
+  // -------------------------------------------------------
+  // DIALOGS/HELPERS de fornecedor
+  // -------------------------------------------------------
   Future<String?> _adicionarFornecedorDialog() async {
     final nomeCtrl = TextEditingController();
     final emailCtrl = TextEditingController();
@@ -157,15 +204,20 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
             children: [
               TextFormField(
                 controller: nomeCtrl,
-                decoration: const InputDecoration(labelText: 'Nome'),
+                decoration: const InputDecoration(
+                  labelText: 'Nome',
+                  filled: true,
+                ),
                 validator: (v) =>
                     (v == null || v.trim().isEmpty) ? 'Informe o nome' : null,
               ),
               const SizedBox(height: 12),
               TextFormField(
                 controller: emailCtrl,
-                decoration:
-                    const InputDecoration(labelText: 'Email (opcional)'),
+                decoration: const InputDecoration(
+                  labelText: 'Email (opcional)',
+                  filled: true,
+                ),
                 keyboardType: TextInputType.emailAddress,
               ),
             ],
@@ -193,7 +245,6 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
     return result;
   }
 
-  /// Digitar fornecedor manualmente (Nome + Email opcional, sem gravar no repo)
   Future<(String nome, String? email)?> _digitarFornecedorManual() async {
     final nomeCtrl = TextEditingController();
     final emailCtrl = TextEditingController();
@@ -210,16 +261,20 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
             children: [
               TextFormField(
                 controller: nomeCtrl,
-                decoration:
-                    const InputDecoration(hintText: 'Nome do fornecedor'),
+                decoration: const InputDecoration(
+                  hintText: 'Nome do fornecedor',
+                  filled: true,
+                ),
                 validator: (v) =>
                     (v == null || v.trim().isEmpty) ? 'Informe um nome' : null,
               ),
               const SizedBox(height: 12),
               TextFormField(
                 controller: emailCtrl,
-                decoration:
-                    const InputDecoration(hintText: 'Email (opcional)'),
+                decoration: const InputDecoration(
+                  hintText: 'Email (opcional)',
+                  filled: true,
+                ),
                 keyboardType: TextInputType.emailAddress,
               ),
             ],
@@ -248,169 +303,144 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
     return null;
   }
 
+  // -------------------------------------------------------
+  // UI HELPERS
+  // -------------------------------------------------------
+  void _ok(String msg) =>
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  void _err(String msg) => ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), backgroundColor: Colors.red));
+
+  Future<void> _selecionarDataValidadeLote() async {
+    final data = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now().add(const Duration(days: 1)),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365 * 5)),
+    );
+    if (data != null) {
+      setState(() {
+        _loteValidadeSelecionada = data;
+        _loteValidadeController.text = _dateFmt.format(data);
+      });
+    }
+  }
+
+  InputDecoration _input(BuildContext context, String label,
+      {Widget? suffixIcon, String? hint}) {
+    final cs = Theme.of(context).colorScheme;
+    final fill = cs.surface;
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      suffixIcon: suffixIcon,
+      filled: true,
+      fillColor: fill,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderSide: BorderSide(color: cs.outlineVariant),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderSide: BorderSide(color: cs.primary, width: 1.6),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+    );
+  }
+
+  // -------------------------------------------------------
+  // BUILD
+  // -------------------------------------------------------
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Cadastrar Produto')),
+      appBar: AppBar(title: const Text('Cadastro — Produto e Lote')),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 900),
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(16),
-            child: Card(
-              margin: EdgeInsets.zero,
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Form(
-                  key: _formKey,
-                  child: LayoutBuilder(
-                    builder: (context, c) {
-                      final wide = c.maxWidth >= 640; // 2 colunas quando couber
-                      return Column(
+            child: Column(
+              children: [
+                // ==========================
+                // CARD 1 — PRODUTO
+                // ==========================
+                Card(
+                  margin: EdgeInsets.zero,
+                  elevation: 2,
+                  color: cs.surface,
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Form(
+                      key: _formProdutoKey,
+                      child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Dados do Produto',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleMedium
-                                  ?.copyWith(fontWeight: FontWeight.w700)),
+                          Text(
+                            'Cadastrar Produto',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                          ),
                           const SizedBox(height: 16),
 
                           // Nome
                           TextFormField(
                             controller: _nomeController,
-                            decoration: const InputDecoration(
-                                labelText: 'Nome do Produto'),
-                            validator: (value) => value == null ||
-                                    value.trim().isEmpty
-                                ? 'Preencha o nome'
-                                : null,
+                            decoration: _input(context, 'Nome do Produto'),
+                            validator: (value) =>
+                                value == null || value.trim().isEmpty
+                                    ? 'Preencha o nome'
+                                    : null,
                           ),
                           const SizedBox(height: 12),
 
-                          // Categoria (NOVO)
+                          // Categoria
                           TextFormField(
                             controller: _categoriaController,
-                            decoration: const InputDecoration(
-                                labelText: 'Categoria (ex.: Medicamento, Descartável…)'),
-                            validator: (value) => value == null ||
-                                    value.trim().isEmpty
-                                ? 'Informe a categoria'
-                                : null,
+                            decoration: _input(context,
+                                'Categoria (ex.: Medicamento, Descartável…)'),
+                            validator: (value) =>
+                                value == null || value.trim().isEmpty
+                                    ? 'Informe a categoria'
+                                    : null,
                           ),
                           const SizedBox(height: 16),
 
-                          // Quantidade + Estoque Mínimo
-                          if (wide)
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: TextFormField(
-                                    controller: _quantidadeController,
-                                    decoration: const InputDecoration(
-                                        labelText:
-                                            'Quantidade (stock inicial)'),
-                                    keyboardType: TextInputType.number,
-                                    validator: (value) {
-                                      if (value == null ||
-                                          value.trim().isEmpty) {
-                                        return 'Informe a quantidade';
-                                      }
-                                      if (int.tryParse(value.trim()) == null) {
-                                        return 'Quantidade inválida';
-                                      }
-                                      return null;
-                                    },
-                                  ),
-                                ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: TextFormField(
-                                    controller: _estoqueMinimoController,
-                                    decoration: const InputDecoration(
-                                        labelText:
-                                            'Estoque mínimo (ponto de reposição)'),
-                                    keyboardType: TextInputType.number,
-                                    validator: (value) {
-                                      if (value == null ||
-                                          value.trim().isEmpty) {
-                                        return 'Informe o estoque mínimo';
-                                      }
-                                      if (int.tryParse(value.trim()) == null) {
-                                        return 'Valor inválido';
-                                      }
-                                      return null;
-                                    },
-                                  ),
-                                ),
-                              ],
-                            )
-                          else ...[
-                            TextFormField(
-                              controller: _quantidadeController,
-                              decoration: const InputDecoration(
-                                  labelText: 'Quantidade (stock inicial)'),
-                              keyboardType: TextInputType.number,
-                              validator: (value) {
-                                if (value == null || value.trim().isEmpty) {
-                                  return 'Informe a quantidade';
-                                }
-                                if (int.tryParse(value.trim()) == null) {
-                                  return 'Quantidade inválida';
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 16),
-                            TextFormField(
-                              controller: _estoqueMinimoController,
-                              decoration: const InputDecoration(
-                                  labelText:
-                                      'Estoque mínimo (ponto de reposição)'),
-                              keyboardType: TextInputType.number,
-                              validator: (value) {
-                                if (value == null || value.trim().isEmpty) {
-                                  return 'Informe o estoque mínimo';
-                                }
-                                if (int.tryParse(value.trim()) == null) {
-                                  return 'Valor inválido';
-                                }
-                                return null;
-                              },
-                            ),
-                          ],
-                          const SizedBox(height: 16),
-
-                          // Validade (lote inicial)
+                          // Estoque Mínimo
                           TextFormField(
-                            controller: _validadeController,
-                            readOnly: true,
-                            decoration: const InputDecoration(
-                              labelText: 'Validade (do lote cadastrado)',
-                              suffixIcon: Icon(Icons.calendar_today),
-                            ),
-                            onTap: _selecionarDataValidade,
-                            validator: (_) => _validadeSelecionada == null
-                                ? 'Selecione a validade'
-                                : null,
-                          ),
-                          const SizedBox(height: 12),
-
-                          // Nº do lote (opcional) — NOVO
-                          TextFormField(
-                            controller: _loteController,
-                            decoration: const InputDecoration(
-                              labelText: 'Nº do lote (opcional)',
-                            ),
+                            controller: _estoqueMinimoController,
+                            decoration: _input(context,
+                                'Estoque mínimo (ponto de reposição)'),
+                            keyboardType: TextInputType.number,
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return 'Informe o estoque mínimo';
+                              }
+                              if (int.tryParse(value.trim()) == null) {
+                                return 'Valor inválido';
+                              }
+                              final n = int.parse(value.trim());
+                              if (n < 0) return 'Não pode ser negativo';
+                              return null;
+                            },
                           ),
                           const SizedBox(height: 24),
 
                           // Fornecedor
-                          Text('Fornecedor',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleMedium
-                                  ?.copyWith(fontWeight: FontWeight.w700)),
+                          Text(
+                            'Fornecedor',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                          ),
                           const SizedBox(height: 8),
                           Row(
                             children: [
@@ -419,7 +449,6 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
                                   stream: _repo.streamAll(),
                                   builder: (context, snapshot) {
                                     final fornecedores = snapshot.data ?? [];
-                                    // atualiza cache sempre que a stream emite
                                     _fornecedoresCache = fornecedores;
 
                                     final items = <DropdownMenuItem<String>>[
@@ -427,52 +456,69 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
                                           DropdownMenuItem<String>(
                                             value: f.nome,
                                             child: Text(
-                                              (f.email == null || f.email!.isEmpty)
+                                              (f.email == null ||
+                                                      f.email!.isEmpty)
                                                   ? f.nome
                                                   : '${f.nome}  —  ${f.email}',
                                             ),
                                           )),
                                       const DropdownMenuItem<String>(
                                         value: '__manual__',
-                                        child: Text('Outro (digitar manualmente)'),
+                                        child: Text(
+                                            'Outro (digitar manualmente)'),
                                       ),
                                     ];
 
                                     return DropdownButtonFormField<String>(
-                                      value: items.any((e) => e.value == _fornecedorSelecionadoNome)
+                                      value: items.any((e) =>
+                                              e.value ==
+                                              _fornecedorSelecionadoNome)
                                           ? _fornecedorSelecionadoNome
                                           : null,
                                       items: items,
                                       onChanged: (v) async {
                                         if (v == null) return;
                                         if (v == '__manual__') {
-                                          final typed = await _digitarFornecedorManual();
-                                          if (typed != null && typed.$1.trim().isNotEmpty) {
-                                            setState(() {
-                                              _fornecedorSelecionadoNome = typed.$1.trim();
-                                              _fornecedorSelecionadoEmail = typed.$2; // pode ser null
-                                            });
-                                          }
+                                          final typed =
+                                              await _digitarFornecedorManual();
+                                        if (typed != null &&
+                                            typed.$1.trim().isNotEmpty) {
+                                          setState(() {
+                                            _fornecedorSelecionadoNome =
+                                                typed.$1.trim();
+                                            _fornecedorSelecionadoEmail =
+                                                typed.$2; // pode ser null
+                                          });
+                                        }
                                         } else {
-                                          // selecionado da lista: preenche nome + email
                                           final nomeSel = v.trim();
                                           final sel = fornecedores.firstWhere(
-                                            (f) => _repo.normalize(f.nome) == _repo.normalize(nomeSel),
-                                            orElse: () => Fornecedor(id: '', nome: nomeSel, email: null),
+                                            (f) =>
+                                                _repo.normalize(f.nome) ==
+                                                _repo.normalize(nomeSel),
+                                            orElse: () => Fornecedor(
+                                                id: '',
+                                                nome: nomeSel,
+                                                email: null),
                                           );
                                           setState(() {
-                                            _fornecedorSelecionadoNome = sel.nome;
-                                            _fornecedorSelecionadoEmail = sel.email; // pode ser null
+                                            _fornecedorSelecionadoNome =
+                                                sel.nome;
+                                            _fornecedorSelecionadoEmail =
+                                                sel.email; // pode ser null
                                           });
                                         }
                                       },
-                                      decoration: const InputDecoration(
-                                        border: OutlineInputBorder(),
-                                        hintText: 'Selecionar fornecedor',
-                                      ),
+                                      decoration:
+                                          _input(context, 'Selecionar fornecedor'),
+                                      dropdownColor: Theme.of(context)
+                                          .colorScheme
+                                          .surface,
                                       validator: (v) {
-                                        final nome = _fornecedorSelecionadoNome;
-                                        if (nome == null || nome.trim().isEmpty) {
+                                        final nome =
+                                            _fornecedorSelecionadoNome;
+                                        if (nome == null ||
+                                            nome.trim().isEmpty) {
                                           return 'Informe o fornecedor';
                                         }
                                         return null;
@@ -484,16 +530,15 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
                               const SizedBox(width: 8),
                               FilledButton.icon(
                                 onPressed: () async {
-                                  final createdName = await _adicionarFornecedorDialog();
+                                  final createdName =
+                                      await _adicionarFornecedorDialog();
                                   if (createdName != null) {
                                     setState(() {
                                       _fornecedorSelecionadoNome = createdName;
                                       // email virá pela stream no próximo tick
                                     });
                                     if (mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text('Fornecedor adicionado!')),
-                                      );
+                                      _ok('Fornecedor adicionado!');
                                     }
                                   }
                                 },
@@ -507,42 +552,283 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
                           // Telefone do fornecedor (opcional)
                           TextFormField(
                             controller: _fornTelefoneController,
-                            decoration: const InputDecoration(
-                              labelText: 'Telefone do fornecedor (opcional)',
-                            ),
+                            decoration: _input(context,
+                                'Telefone do fornecedor (opcional)'),
                             keyboardType: TextInputType.phone,
                           ),
 
-                          const SizedBox(height: 28),
+                          const SizedBox(height: 20),
 
-                          // Ações
+                          // Ações produto
                           Row(
                             children: [
                               FilledButton.icon(
-                                onPressed: _salvarProduto,
-                                icon: const Icon(Icons.save),
-                                label: const Text('Salvar Produto'),
-                              ),
-                              const SizedBox(width: 12),
-                              OutlinedButton.icon(
-                                onPressed: () {
-                                  Navigator.pushAndRemoveUntil(
-                                    context,
-                                    MaterialPageRoute(builder: (context) => const HomePage()),
-                                    (route) => false,
-                                  );
-                                },
-                                icon: const Icon(Icons.cancel, color: Colors.red),
-                                label: const Text('Voltar', style: TextStyle(color: Colors.red)),
+                                onPressed:
+                                    _isSavingProduto ? null : _salvarProduto,
+                                icon: _isSavingProduto
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.save),
+                                label: Text(_isSavingProduto
+                                    ? 'Salvando...'
+                                    : 'Salvar Produto'),
                               ),
                             ],
                           ),
                         ],
-                      );
-                    },
+                      ),
+                    ),
                   ),
                 ),
-              ),
+
+                const SizedBox(height: 16),
+
+                // ==========================
+                // CARD 2 — LOTE (com SELECT de Produto)
+                // ==========================
+                Card(
+                  margin: EdgeInsets.zero,
+                  elevation: 2,
+                  color: cs.surface,
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Form(
+                      key: _formLoteKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Cadastrar Lote para Produto existente',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 16),
+
+                          // SELECT de Produto (carrega em tempo real, com estados)
+                          StreamBuilder<QuerySnapshot>(
+                            stream: FirebaseFirestore.instance
+                                .collection('produtos')
+                                .orderBy('nome')
+                                .snapshots(),
+                            builder: (context, snap) {
+                              if (snap.hasError) {
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Erro ao carregar produtos.',
+                                      style: TextStyle(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .error,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    OutlinedButton.icon(
+                                      onPressed: () => setState(() {}),
+                                      icon: const Icon(Icons.refresh),
+                                      label: const Text('Tentar novamente'),
+                                    ),
+                                  ],
+                                );
+                              }
+
+                              if (!snap.hasData) {
+                                return const Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 8),
+                                  child: LinearProgressIndicator(),
+                                );
+                              }
+
+                              final docs = snap.data!.docs;
+                              final hasDocs = docs.isNotEmpty;
+
+                              if (!hasDocs) {
+                                // Não há produtos cadastrados ainda
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Nenhum produto encontrado. Cadastre um produto primeiro (Admin → Produtos ou no card acima).',
+                                    ),
+                                    const SizedBox(height: 8),
+                                    DropdownButtonFormField<String>(
+                                      value: null,
+                                      items: const [],
+                                      onChanged: null, // desabilitado
+                                      decoration: _input(context,
+                                          'Produto (nenhum disponível)'),
+                                    ),
+                                  ],
+                                );
+                              }
+
+                              // Há produtos: monta items e mantém seleção, se ainda existir
+                              final items = docs.map((d) {
+                                final nome =
+                                    (d['nome'] ?? '').toString().trim();
+                                return DropdownMenuItem<String>(
+                                  value: d.id,
+                                  child: Text(
+                                      nome.isEmpty ? '(sem nome)' : nome),
+                                );
+                              }).toList();
+
+                              final exists =
+                                  docs.any((d) => d.id == _produtoSelecionadoId);
+                              if (!exists) {
+                                // se o produto selecionado foi apagado, limpa seleção
+                                _produtoSelecionadoId = null;
+                              }
+
+                              return DropdownButtonFormField<String>(
+                                value: exists ? _produtoSelecionadoId : null,
+                                items: items,
+                                onChanged: (v) =>
+                                    setState(() => _produtoSelecionadoId = v),
+                                decoration: _input(context,
+                                    'Produto (seleciona um cadastrado)'),
+                                dropdownColor: Theme.of(context)
+                                    .colorScheme
+                                    .surface,
+                                validator: (v) => (v == null || v.isEmpty)
+                                    ? 'Selecione um produto'
+                                    : null,
+                              );
+                            },
+                          ),
+
+                          const SizedBox(height: 16),
+
+                          // BLOQUEIA campos do lote até escolher um produto
+                          Builder(
+                            builder: (context) {
+                              final bloqueado = _produtoSelecionadoId == null;
+
+                              return AbsorbPointer(
+                                absorbing: bloqueado,
+                                child: Opacity(
+                                  opacity: bloqueado ? 0.55 : 1.0,
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      // Quantidade
+                                      TextFormField(
+                                        controller: _loteQuantidadeController,
+                                        decoration: _input(
+                                            context, 'Quantidade do lote'),
+                                        keyboardType: TextInputType.number,
+                                        validator: (v) {
+                                          if (_produtoSelecionadoId == null) {
+                                            return null; // a seleção do produto já é obrigatória
+                                          }
+                                          if (v == null || v.trim().isEmpty) {
+                                            return 'Informe a quantidade';
+                                          }
+                                          final n = int.tryParse(v.trim());
+                                          if (n == null || n <= 0) {
+                                            return 'Quantidade inválida';
+                                          }
+                                          return null;
+                                        },
+                                      ),
+                                      const SizedBox(height: 12),
+
+                                      // Validade
+                                      TextFormField(
+                                        controller: _loteValidadeController,
+                                        readOnly: true,
+                                        decoration: _input(
+                                          context,
+                                          'Validade',
+                                          suffixIcon: const Icon(
+                                              Icons.calendar_today),
+                                        ),
+                                        onTap: _selecionarDataValidadeLote,
+                                        validator: (_) =>
+                                            _produtoSelecionadoId == null
+                                                ? null
+                                                : (_loteValidadeSelecionada ==
+                                                        null
+                                                    ? 'Selecione a validade'
+                                                    : null),
+                                      ),
+                                      const SizedBox(height: 12),
+
+                                      // Código (opcional)
+                                      TextFormField(
+                                        controller: _loteCodigoController,
+                                        decoration: _input(context,
+                                            'Nº do lote (opcional)'),
+                                      ),
+                                      const SizedBox(height: 20),
+
+                                      // Ações lote
+                                      Row(
+                                        children: [
+                                          FilledButton.icon(
+                                            onPressed: _isSavingLote
+                                                ? null
+                                                : _salvarLote,
+                                            icon: _isSavingLote
+                                                ? const SizedBox(
+                                                    width: 16,
+                                                    height: 16,
+                                                    child:
+                                                        CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                    ),
+                                                  )
+                                                : const Icon(Icons.save),
+                                            label: Text(_isSavingLote
+                                                ? 'Salvando...'
+                                                : 'Salvar Lote'),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          OutlinedButton.icon(
+                                            onPressed: _isSavingLote
+                                                ? null
+                                                : () {
+                                                    Navigator
+                                                        .pushAndRemoveUntil(
+                                                      context,
+                                                      MaterialPageRoute(
+                                                        builder: (context) =>
+                                                            const HomePage(),
+                                                      ),
+                                                      (route) => false,
+                                                    );
+                                                  },
+                                            icon: const Icon(Icons.cancel,
+                                                color: Colors.red),
+                                            label: const Text(
+                                              'Voltar',
+                                              style: TextStyle(
+                                                  color: Colors.red),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),

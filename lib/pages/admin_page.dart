@@ -1,9 +1,11 @@
 // lib/pages/admin_page.dart
+
 import 'package:flutter/material.dart';
 import 'package:kwalps_st/services/authz_service.dart';
 import 'package:kwalps_st/services/stock_service.dart';
 
-import 'fornecedores_admin_tab.dart'; // <- nova aba
+import 'fornecedores_admin_tab.dart';
+import 'produtos_admin_tab.dart'; // <-- nova aba
 
 class AdminPage extends StatefulWidget {
   const AdminPage({super.key});
@@ -12,8 +14,8 @@ class AdminPage extends StatefulWidget {
 }
 
 class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMixin {
-  // Agora com 3 abas
-  late final TabController _tab = TabController(length: 3, vsync: this);
+  // Agora com 4 abas
+  late final TabController _tab = TabController(length: 4, vsync: this);
 
   @override
   void dispose() {
@@ -33,7 +35,8 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
           tabs: const [
             Tab(text: 'Autorizados'),
             Tab(text: 'Histórico'),
-            Tab(text: 'Fornecedores'), // NOVO
+            Tab(text: 'Fornecedores'),
+            Tab(text: 'Produtos'), // <-- NOVO
           ],
         ),
       ),
@@ -209,7 +212,10 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
           ),
 
           // --------- Aba 3: Fornecedores ---------
-          const FornecedoresAdminTab(), // NOVO
+          const FornecedoresAdminTab(),
+
+          // --------- Aba 4: Produtos (NOVA) ---------
+          const ProdutosAdminTab(),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
