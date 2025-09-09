@@ -1,3 +1,4 @@
+// lib/pages/produtos_admin_tab.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
@@ -12,6 +13,10 @@ class _ProdutosAdminTabState extends State<ProdutosAdminTab> {
   final _formKey = GlobalKey<FormState>();
   final _nomeCtrl = TextEditingController();
   bool _saving = false;
+
+  // fornecedor selecionado (id do doc) e cache para resolver nome/email ao salvar
+  String? _fornecedorSelId;
+  List<_FornecedorLite> _fornecedoresCache = const [];
 
   @override
   void dispose() {
@@ -28,25 +33,23 @@ class _ProdutosAdminTabState extends State<ProdutosAdminTab> {
 
     try {
       final nome = _nomeCtrl.text.trim();
-
-      // (Opcional) prevenir duplicados por nome, se quiseres:
-      // final dup = await FirebaseFirestore.instance
-      //    .collection('produtos')
-      //    .where('nome', isEqualTo: nome)
-      //    .limit(1).get();
-      // if (dup.docs.isNotEmpty) {
-      //   _err('Já existe um produto com esse nome.');
-      //   setState(() => _saving = false);
-      //   return;
-      // }
+      final fornecedor = _fornecedoresCache
+          .firstWhere((f) => f.id == _fornecedorSelId, orElse: () => _FornecedorLite.empty());
 
       await FirebaseFirestore.instance.collection('produtos').add({
         'nome': nome,
         'criado_em': FieldValue.serverTimestamp(),
+        // ligação ao fornecedor
+        'fornecedor_id': fornecedor.id?.isNotEmpty == true ? fornecedor.id : null,
+        'fornecedor': fornecedor.nome?.isNotEmpty == true ? fornecedor.nome : null,
+        'fornecedor_email': fornecedor.email?.isNotEmpty == true ? fornecedor.email : null,
+        // utilidade para buscas/ordenações futuras
+        'fornecedor_normalizado': (fornecedor.nome ?? '').trim().toLowerCase(),
       });
 
       _ok('Produto cadastrado.');
       _nomeCtrl.clear();
+      setState(() => _fornecedorSelId = null);
       _formKey.currentState?.reset();
     } catch (e) {
       _err('Erro ao salvar: $e');
@@ -64,10 +67,10 @@ class _ProdutosAdminTabState extends State<ProdutosAdminTab> {
     }
   }
 
-  void _ok(String msg) => ScaffoldMessenger.of(context)
-      .showSnackBar(SnackBar(content: Text(msg)));
-  void _err(String msg) => ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: Colors.red));
+  void _ok(String msg) =>
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  void _err(String msg) => ScaffoldMessenger.of(context)
+      .showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
 
   @override
   Widget build(BuildContext context) {
@@ -78,7 +81,7 @@ class _ProdutosAdminTabState extends State<ProdutosAdminTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Cadastrar novo produto (nome apenas)',
+          const Text('Cadastrar novo produto',
               style: TextStyle(fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
           Card(
@@ -90,30 +93,97 @@ class _ProdutosAdminTabState extends State<ProdutosAdminTab> {
               padding: const EdgeInsets.all(12),
               child: Form(
                 key: _formKey,
-                child: Row(
+                child: Column(
                   children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: _nomeCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Nome do produto',
-                          filled: true,
-                        ),
-                        validator: (v) =>
-                            (v == null || v.trim().isEmpty)
+                    // Nome do produto
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _nomeCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Nome do produto',
+                              filled: true,
+                            ),
+                            validator: (v) => (v == null || v.trim().isEmpty)
                                 ? 'Informe o nome'
                                 : null,
-                      ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton.icon(
+                          onPressed: _saving ? null : _salvar,
+                          icon: _saving
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.save),
+                          label: Text(_saving ? 'Salvando...' : 'Salvar'),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 8),
-                    FilledButton.icon(
-                      onPressed: _saving ? null : _salvar,
-                      icon: _saving
-                          ? const SizedBox(
-                              width: 16, height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2))
-                          : const Icon(Icons.save),
-                      label: Text(_saving ? 'Salvando...' : 'Salvar'),
+
+                    const SizedBox(height: 12),
+
+                    // SELECT de fornecedor (nome + email)
+                    StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('fornecedores')
+                          .orderBy('nome')
+                          .snapshots(),
+                      builder: (context, snap) {
+                        if (snap.hasError) {
+                          return const Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text('Erro ao carregar fornecedores.'),
+                          );
+                        }
+                        if (!snap.hasData) {
+                          return const LinearProgressIndicator();
+                        }
+
+                        final docs = snap.data!.docs;
+                        _fornecedoresCache = docs
+                            .map((d) => _FornecedorLite(
+                                  id: d.id,
+                                  nome: (d['nome'] ?? '').toString().trim(),
+                                  email: (d['email'] ?? '').toString().trim(),
+                                ))
+                            .toList();
+
+                        if (docs.isEmpty) {
+                          return const Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text('Nenhum fornecedor cadastrado ainda.'),
+                          );
+                        }
+
+                        // garantir que a seleção ainda existe
+                        final exists = _fornecedoresCache.any((f) => f.id == _fornecedorSelId);
+                        if (!exists) _fornecedorSelId = null;
+
+                        return DropdownButtonFormField<String>(
+                          value: exists ? _fornecedorSelId : null,
+                          items: _fornecedoresCache.map((f) {
+                            final label = (f.email == null || f.email!.isEmpty)
+                                ? (f.nome ?? '')
+                                : '${f.nome} — ${f.email}';
+                            return DropdownMenuItem<String>(
+                              value: f.id,
+                              child: Text(label),
+                            );
+                          }).toList(),
+                          onChanged: (v) => setState(() => _fornecedorSelId = v),
+                          decoration: const InputDecoration(
+                            labelText: 'Fornecedor',
+                            filled: true,
+                          ),
+                          validator: (v) =>
+                              v == null ? 'Selecione um fornecedor' : null,
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -154,7 +224,12 @@ class _ProdutosAdminTabState extends State<ProdutosAdminTab> {
                   separatorBuilder: (_, __) => const SizedBox(height: 8),
                   itemBuilder: (_, i) {
                     final d = docs[i];
-                    final nome = (d['nome'] ?? '').toString();
+                    final nome = (d['nome'] ?? '').toString().trim();
+                    final fornecedorNome =
+                        (d['fornecedor'] ?? '').toString().trim();
+                    final fornecedorEmail =
+                        (d['fornecedor_email'] ?? '').toString().trim();
+
                     return Card(
                       shape: RoundedRectangleBorder(
                         side: BorderSide(color: cs.outline),
@@ -165,6 +240,13 @@ class _ProdutosAdminTabState extends State<ProdutosAdminTab> {
                           nome.isEmpty ? '(sem nome)' : nome,
                           style: const TextStyle(fontWeight: FontWeight.w600),
                         ),
+                        subtitle: (fornecedorNome.isEmpty && fornecedorEmail.isEmpty)
+                            ? null
+                            : Text(
+                                fornecedorEmail.isEmpty
+                                    ? 'Fornecedor: $fornecedorNome'
+                                    : 'Fornecedor: $fornecedorNome — $fornecedorEmail',
+                              ),
                         trailing: IconButton(
                           tooltip: 'Eliminar',
                           onPressed: () => _delete(d.id),
@@ -181,4 +263,13 @@ class _ProdutosAdminTabState extends State<ProdutosAdminTab> {
       ),
     );
   }
+}
+
+class _FornecedorLite {
+  final String? id;
+  final String? nome;
+  final String? email;
+
+  const _FornecedorLite({this.id, this.nome, this.email});
+  factory _FornecedorLite.empty() => const _FornecedorLite();
 }
