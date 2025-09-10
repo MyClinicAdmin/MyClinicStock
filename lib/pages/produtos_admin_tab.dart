@@ -39,11 +39,10 @@ class _ProdutosAdminTabState extends State<ProdutosAdminTab> {
       await FirebaseFirestore.instance.collection('produtos').add({
         'nome': nome,
         'criado_em': FieldValue.serverTimestamp(),
-        // ligação ao fornecedor
-        'fornecedor_id': fornecedor.id?.isNotEmpty == true ? fornecedor.id : null,
-        'fornecedor': fornecedor.nome?.isNotEmpty == true ? fornecedor.nome : null,
-        'fornecedor_email': fornecedor.email?.isNotEmpty == true ? fornecedor.email : null,
-        // utilidade para buscas/ordenações futuras
+        // ligação ao fornecedor (opcional)
+        'fornecedor_id': (fornecedor.id ?? '').isNotEmpty ? fornecedor.id : null,
+        'fornecedor': (fornecedor.nome ?? '').isNotEmpty ? fornecedor.nome : null,
+        'fornecedor_email': (fornecedor.email ?? '').isNotEmpty ? fornecedor.email : null,
         'fornecedor_normalizado': (fornecedor.nome ?? '').trim().toLowerCase(),
       });
 
@@ -81,8 +80,7 @@ class _ProdutosAdminTabState extends State<ProdutosAdminTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Cadastrar novo produto',
-              style: TextStyle(fontWeight: FontWeight.w700)),
+          const Text('Cadastrar novo produto', style: TextStyle(fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
           Card(
             shape: RoundedRectangleBorder(
@@ -95,7 +93,7 @@ class _ProdutosAdminTabState extends State<ProdutosAdminTab> {
                 key: _formKey,
                 child: Column(
                   children: [
-                    // Nome do produto
+                    // Nome + Salvar
                     Row(
                       children: [
                         Expanded(
@@ -105,9 +103,8 @@ class _ProdutosAdminTabState extends State<ProdutosAdminTab> {
                               labelText: 'Nome do produto',
                               filled: true,
                             ),
-                            validator: (v) => (v == null || v.trim().isEmpty)
-                                ? 'Informe o nome'
-                                : null,
+                            validator: (v) =>
+                                (v == null || v.trim().isEmpty) ? 'Informe o nome' : null,
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -115,8 +112,7 @@ class _ProdutosAdminTabState extends State<ProdutosAdminTab> {
                           onPressed: _saving ? null : _salvar,
                           icon: _saving
                               ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
+                                  width: 16, height: 16,
                                   child: CircularProgressIndicator(strokeWidth: 2),
                                 )
                               : const Icon(Icons.save),
@@ -124,7 +120,6 @@ class _ProdutosAdminTabState extends State<ProdutosAdminTab> {
                         ),
                       ],
                     ),
-
                     const SizedBox(height: 12),
 
                     // SELECT de fornecedor (nome + email)
@@ -146,11 +141,14 @@ class _ProdutosAdminTabState extends State<ProdutosAdminTab> {
 
                         final docs = snap.data!.docs;
                         _fornecedoresCache = docs
-                            .map((d) => _FornecedorLite(
-                                  id: d.id,
-                                  nome: (d['nome'] ?? '').toString().trim(),
-                                  email: (d['email'] ?? '').toString().trim(),
-                                ))
+                            .map((d) {
+                              final data = (d.data() as Map<String, dynamic>? ?? {});
+                              return _FornecedorLite(
+                                id: d.id,
+                                nome: (data['nome'] ?? '').toString().trim(),
+                                email: (data['email'] ?? '').toString().trim(),
+                              );
+                            })
                             .toList();
 
                         if (docs.isEmpty) {
@@ -180,8 +178,7 @@ class _ProdutosAdminTabState extends State<ProdutosAdminTab> {
                             labelText: 'Fornecedor',
                             filled: true,
                           ),
-                          validator: (v) =>
-                              v == null ? 'Selecione um fornecedor' : null,
+                          validator: (v) => v == null ? 'Selecione um fornecedor' : null,
                         );
                       },
                     ),
@@ -192,8 +189,7 @@ class _ProdutosAdminTabState extends State<ProdutosAdminTab> {
           ),
 
           const SizedBox(height: 12),
-          const Text('Produtos existentes',
-              style: TextStyle(fontWeight: FontWeight.w700)),
+          const Text('Produtos existentes', style: TextStyle(fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
 
           Expanded(
@@ -207,28 +203,29 @@ class _ProdutosAdminTabState extends State<ProdutosAdminTab> {
                   return Center(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
-                      child: Text('Erro: ${snap.error}',
-                          textAlign: TextAlign.center),
+                      child: Text('Erro: ${snap.error}', textAlign: TextAlign.center),
                     ),
                   );
                 }
                 if (!snap.hasData) {
                   return const Center(child: CircularProgressIndicator());
                 }
+
                 final docs = snap.data!.docs;
                 if (docs.isEmpty) {
                   return const Center(child: Text('Nenhum produto cadastrado.'));
                 }
+
                 return ListView.separated(
                   itemCount: docs.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 8),
                   itemBuilder: (_, i) {
                     final d = docs[i];
-                    final nome = (d['nome'] ?? '').toString().trim();
-                    final fornecedorNome =
-                        (d['fornecedor'] ?? '').toString().trim();
-                    final fornecedorEmail =
-                        (d['fornecedor_email'] ?? '').toString().trim();
+                    // ✅ leitura segura: evita "Bad state: field 'fornecedor'..."
+                    final data = (d.data() as Map<String, dynamic>? ?? {});
+                    final nome = (data['nome'] ?? '').toString().trim();
+                    final fornecedorNome = (data['fornecedor'] ?? '').toString().trim();
+                    final fornecedorEmail = (data['fornecedor_email'] ?? '').toString().trim();
 
                     return Card(
                       shape: RoundedRectangleBorder(

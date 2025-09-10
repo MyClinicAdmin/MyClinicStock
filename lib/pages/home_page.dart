@@ -7,6 +7,8 @@ import 'package:kwalps_st/pages/produtos_page.dart';
 import 'package:kwalps_st/pages/admin_page.dart';
 import 'package:kwalps_st/services/authz_service.dart';
 import 'package:kwalps_st/services/session_service.dart';
+import 'package:kwalps_st/pages/admin_page.dart';
+
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
