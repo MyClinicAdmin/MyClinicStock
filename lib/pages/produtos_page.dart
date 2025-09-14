@@ -14,6 +14,62 @@ class ProdutosPage extends StatefulWidget {
 class _ProdutosPageState extends State<ProdutosPage> {
   String _search = '';
 
+  // ===================== TOASTS (azul/branco) =====================
+  void _ok(String msg) => _toast(
+        msg,
+        icon: Icons.check_circle,
+        bg: Theme.of(context).colorScheme.primary,
+        fg: Theme.of(context).colorScheme.onPrimary,
+      );
+
+  void _err(String msg) => _toast(
+        msg,
+        icon: Icons.error_outline,
+        bg: Theme.of(context).colorScheme.error,
+        fg: Theme.of(context).colorScheme.onError,
+      );
+
+  void _toast(
+    String msg, {
+    required IconData icon,
+    required Color bg,
+    required Color fg,
+  }) {
+    final sb = SnackBar(
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 18),
+      duration: const Duration(seconds: 2),
+      content: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [BoxShadow(color: bg.withOpacity(.25), blurRadius: 10, offset: const Offset(0, 4))],
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: fg),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                msg,
+                style: TextStyle(color: fg, fontWeight: FontWeight.w700),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(sb);
+  }
+  // ===============================================================
+
   String _tsToString(dynamic v) {
     if (v == null) return '-';
     try {
@@ -26,6 +82,38 @@ class _ProdutosPageState extends State<ProdutosPage> {
       }
     } catch (_) {}
     return v.toString();
+  }
+
+  // Próxima validade entre lotes (fallback: validade do produto)
+  Future<String> _carregarProximaValidade(String produtoId, String fallbackVal) async {
+    final lotesCol = FirebaseFirestore.instance
+        .collection('produtos')
+        .doc(produtoId)
+        .collection('lotes');
+
+    final q = await lotesCol.orderBy('validade').get();
+    if (q.docs.isEmpty) return fallbackVal;
+
+    DateTime? earliest;
+    for (final d in q.docs) {
+      final v = d.data()['validade'];
+      if (v != null) {
+        final dt = (v as dynamic).toDate?.call();
+        if (dt is DateTime) {
+          if (earliest == null || dt.isBefore(earliest!)) earliest = dt;
+        }
+      }
+    }
+    if (earliest == null) return fallbackVal;
+
+    String _fmt(DateTime d) {
+      final yyyy = d.year.toString().padLeft(4, '0');
+      final mm = d.month.toString().padLeft(2, '0');
+      final dd = d.day.toString().padLeft(2, '0');
+      return '$yyyy-$mm-$dd';
+    }
+
+    return _fmt(earliest!);
   }
 
   @override
@@ -41,10 +129,7 @@ class _ProdutosPageState extends State<ProdutosPage> {
             tooltip: 'Enviar email aos fornecedores',
             icon: const Icon(Icons.mail_outline_rounded),
             onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const EnviarEmailPage()),
-              );
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const EnviarEmailPage()));
             },
           ),
         ],
@@ -99,7 +184,7 @@ class _ProdutosPageState extends State<ProdutosPage> {
                   final data = d.data();
                   final nome = (data['nome'] ?? '').toString().toLowerCase();
                   final forn = (data['fornecedor'] ?? '').toString().toLowerCase();
-                  final cat  = (data['categoria'] ?? '').toString().toLowerCase();
+                  final cat = (data['categoria'] ?? '').toString().toLowerCase();
                   return nome.contains(_search) || forn.contains(_search) || cat.contains(_search);
                 }).toList();
 
@@ -107,98 +192,67 @@ class _ProdutosPageState extends State<ProdutosPage> {
             return const Center(child: Text('Nenhum resultado.'));
           }
 
-          return ListView.separated(
-            padding: const EdgeInsets.all(16),
-            itemCount: filtered.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 12),
-            itemBuilder: (_, i) {
-              final d = filtered[i];
-              final data = d.data();
-              final produtoId = d.id;
-              final nome = (data['nome'] ?? '').toString();
-              final categoria = (data['categoria'] ?? '').toString();
-              final fornecedor = ((data['fornecedor'] ?? '') as String).trim().isEmpty
-                  ? '(Sem fornecedor)'
-                  : (data['fornecedor'] as String);
-              final fornTel = (data['fornecedor_telefone'] ?? '').toString();
-              final qtdTotal = (data['quantidade_total'] ?? data['quantidade'] ?? 0) as int;
-              final minimo = (data['estoque_minimo'] ?? 0) as int;
-              final critico = qtdTotal > 0 ? (qtdTotal <= minimo) : false;
-              final validadeProduto = _tsToString(data['validade']); // fallback legado
+          // GRID mais compacto
+          return LayoutBuilder(
+            builder: (context, c) {
+              final w = c.maxWidth;
+              int cols = 1;
+              if (w >= 1200) cols = 4;
+              else if (w >= 900) cols = 3;
+              else if (w >= 600) cols = 2;
 
-              return Card(
-                elevation: 1.5,
-                shape: RoundedRectangleBorder(
-                  side: BorderSide(color: Theme.of(context).dividerColor),
-                  borderRadius: BorderRadius.circular(14),
+              return GridView.builder(
+                padding: const EdgeInsets.all(14),
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: cols,
+                  mainAxisSpacing: 12,
+                  crossAxisSpacing: 12,
+                  childAspectRatio: 1.20,
                 ),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Cabeçalho
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              nome.isEmpty ? '(sem nome)' : nome,
-                              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
-                            ),
-                          ),
-                          _chipEstado(qtd: qtdTotal, minimo: minimo, critico: critico),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
+                itemCount: filtered.length,
+                itemBuilder: (_, i) {
+                  final d = filtered[i];
+                  final data = d.data();
+                  final produtoId = d.id;
 
-                      // Linha de infos
-                      Wrap(
-                        spacing: 12,
-                        runSpacing: 4,
-                        children: [
-                          _miniInfo(Icons.category, 'Categoria: ${categoria.isEmpty ? '-' : categoria}'),
-                          _miniInfo(Icons.factory,  'Fornecedor: $fornecedor'),
-                          if (fornTel.isNotEmpty) _miniInfo(Icons.phone, 'Telefone: $fornTel'),
-                          _ProximaValidadeDoProduto(
-                            produtoId: produtoId,
-                            fallbackVal: validadeProduto,
-                            miniInfoBuilder: _miniInfo,
-                          ),
-                          _miniInfo(Icons.numbers,  'Total: $qtdTotal'),
-                          _miniInfo(Icons.flag,     'Mínimo: $minimo'),
-                        ],
-                      ),
+                  final nome = (data['nome'] ?? '').toString();
+                  final categoria = (data['categoria'] ?? '').toString();
+                  final fornecedor = ((data['fornecedor'] ?? '') as String).trim().isEmpty
+                      ? '(Sem fornecedor)'
+                      : (data['fornecedor'] as String);
+                  final fornTel = (data['fornecedor_telefone'] ?? '').toString();
 
-                      const SizedBox(height: 12),
-                      const Divider(height: 1),
+                  final qtdTotal = (data['quantidade_total'] ?? data['quantidade'] ?? 0) as int;
+                  final minimo = (data['estoque_minimo'] ?? 0) as int;
+                  final critico = qtdTotal > 0 ? (qtdTotal <= minimo) : false;
+                  final validadeProduto = _tsToString(data['validade']);
 
-                      // Ações
-                      Padding(
-                        padding: const EdgeInsets.only(top: 10),
-                        child: Row(
-                          children: [
-                            FilledButton.icon(
-                              onPressed: () => _openLotesSheet(context, produtoId: produtoId, produtoNome: nome),
-                              icon: const Icon(Icons.inventory_2_outlined),
-                              label: const Text('Abrir lotes'),
-                            ),
-                            const Spacer(),
-                            IconButton.filledTonal(
-                              tooltip: 'Email',
-                              onPressed: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(builder: (_) => const EnviarEmailPage()),
-                                );
-                              },
-                              icon: const Icon(Icons.mail_outline_rounded),
-                            ),
-                          ],
-                        ),
+                  final estado = _estadoEstoque(qtdTotal, minimo, critico);
+                  final estadoColor = _estadoColor(context, estado);
+
+                  return _ProdutoQuickCard(
+                    title: nome.isEmpty ? '(sem nome)' : nome,
+                    headerColor: cs.primary,
+                    estadoLabel: estado,
+                    estadoColor: estadoColor,
+                    lines: [
+                      _infoLine(Icons.factory, 'Fornecedor', fornecedor),
+                      if (fornTel.isNotEmpty) _infoLine(Icons.phone, 'Telefone', fornTel),
+                      _InfoFutureLine(
+                        icon: Icons.event,
+                        label: 'Validade',
+                        future: _carregarProximaValidade(produtoId, validadeProduto),
                       ),
+                      _infoLine(Icons.category, 'Categoria', categoria.isEmpty ? '-' : categoria),
+                      _infoLine(Icons.numbers, 'Total', '$qtdTotal'),
+                      _infoLine(Icons.flag, 'Mínimo', '$minimo'),
                     ],
-                  ),
-                ),
+                    onOpenLotes: () => _openLotesSheet(context, produtoId: produtoId, produtoNome: nome),
+                    onOpenEmail: () {
+                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => const EnviarEmailPage()));
+                    },
+                  );
+                },
               );
             },
           );
@@ -207,25 +261,20 @@ class _ProdutosPageState extends State<ProdutosPage> {
     );
   }
 
-  // ---------- Helpers UI ----------
-  Widget _miniInfo(IconData icon, String text) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [Icon(icon, size: 16), const SizedBox(width: 4), Text(text)],
-    );
+  String _estadoEstoque(int qtd, int minimo, bool critico) {
+    if (qtd <= 0) return 'Sem stock';
+    if (critico) return 'Abaixo do mínimo ($minimo)';
+    return 'OK';
   }
 
-  Widget _chipEstado({required int qtd, required int minimo, required bool critico}) {
-    final label = qtd <= 0 ? 'Sem stock' : (critico ? 'Abaixo do mínimo ($minimo)' : 'OK');
-    final color = qtd <= 0 ? Colors.red : (critico ? Colors.orange : Colors.green);
-    return Chip(
-      label: Text(label),
-      backgroundColor: color.withOpacity(.12),
-      side: BorderSide(color: color),
-    );
+  // cores bem saturadas para tema branco
+  Color _estadoColor(BuildContext context, String estado) {
+    if (estado.startsWith('Sem')) return const Color(0xFFE53935); // vermelho
+    if (estado.startsWith('Abaixo')) return const Color(0xFFFF9800); // laranja
+    return const Color(0xFF1DB954); // verde
   }
 
-  // ---------- Modal de LOTES ----------
+  // ======= Modal LOTES =======
   Future<void> _openLotesSheet(BuildContext context,
       {required String produtoId, required String produtoNome}) async {
     final cs = Theme.of(context).colorScheme;
@@ -253,17 +302,13 @@ class _ProdutosPageState extends State<ProdutosPage> {
             return Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
                   child: Row(
                     children: [
                       Text('Lotes de "$produtoNome"',
                           style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
                       const Spacer(),
-                      IconButton(
-                        tooltip: 'Fechar',
-                        onPressed: () => Navigator.pop(context),
-                        icon: const Icon(Icons.close),
-                      ),
+                      IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
                     ],
                   ),
                 ),
@@ -271,20 +316,16 @@ class _ProdutosPageState extends State<ProdutosPage> {
                   child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                     stream: lotesQuery.snapshots(),
                     builder: (context, snap) {
-                      if (snap.hasError) {
-                        return const Center(child: Text('Erro ao listar lotes.'));
-                      }
+                      if (snap.hasError) return const Center(child: Text('Erro ao listar lotes.'));
                       if (snap.connectionState == ConnectionState.waiting) {
                         return const Center(child: CircularProgressIndicator());
                       }
                       final docs = snap.data?.docs ?? [];
-                      if (docs.isEmpty) {
-                        return const Center(child: Text('Nenhum lote cadastrado para este produto.'));
-                      }
+                      if (docs.isEmpty) return const Center(child: Text('Nenhum lote cadastrado para este produto.'));
 
                       return ListView.separated(
                         controller: controller,
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                        padding: const EdgeInsets.fromLTRB(14, 8, 14, 16),
                         itemCount: docs.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 10),
                         itemBuilder: (_, i) {
@@ -303,17 +344,16 @@ class _ProdutosPageState extends State<ProdutosPage> {
                                   .difference(DateTime.now())
                                   .inDays;
 
-                          // Cor do estado por validade
                           Color border = cs.outlineVariant;
                           if (validade != null) {
                             final hoje = DateTime.now();
                             final v = DateTime(validade.year, validade.month, validade.day);
                             if (v.isBefore(DateTime(hoje.year, hoje.month, hoje.day))) {
-                              border = Colors.red; // vencido
+                              border = const Color(0xFFE53935);
                             } else if (v.difference(hoje).inDays <= 30) {
-                              border = Colors.orange; // a vencer
+                              border = const Color(0xFFFF9800);
                             } else {
-                              border = Colors.green; // ok
+                              border = const Color(0xFF1DB954);
                             }
                           }
 
@@ -323,43 +363,51 @@ class _ProdutosPageState extends State<ProdutosPage> {
                               border: Border.all(color: border, width: 1.2),
                             ),
                             child: Padding(
-                              padding: const EdgeInsets.all(12),
+                              padding: const EdgeInsets.all(10),
                               child: Column(
                                 children: [
                                   Row(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      // índice 1,2,3…
                                       CircleAvatar(
-                                        radius: 16,
+                                        radius: 15,
                                         backgroundColor: border.withOpacity(.15),
                                         child: Text('${i + 1}',
-                                            style: TextStyle(
-                                              color: border,
-                                              fontWeight: FontWeight.w800,
-                                            )),
+                                            style:
+                                                TextStyle(color: border, fontWeight: FontWeight.w800)),
                                       ),
-                                      const SizedBox(width: 12),
+                                      const SizedBox(width: 10),
                                       Expanded(
                                         child: Column(
                                           crossAxisAlignment: CrossAxisAlignment.start,
                                           children: [
-                                            Text(
-                                              codigo.isEmpty ? 'Lote s/ nº' : 'Lote $codigo',
-                                              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
-                                            ),
-                                            const SizedBox(height: 4),
+                                            Text(codigo.isEmpty ? 'Lote s/ nº' : 'Lote $codigo',
+                                                style: const TextStyle(
+                                                    fontWeight: FontWeight.w700, fontSize: 15)),
+                                            const SizedBox(height: 2),
                                             Wrap(
-                                              spacing: 12,
-                                              runSpacing: 4,
+                                              spacing: 10,
+                                              runSpacing: 2,
                                               children: [
-                                                _miniInfo(Icons.event, 'Validade: ${validade == null ? '-' : _yyyyMmDd(validade)}'),
-                                                _miniInfo(Icons.numbers, 'Qtd: $qtd'),
+                                                Row(mainAxisSize: MainAxisSize.min, children: [
+                                                  const Icon(Icons.event, size: 16),
+                                                  const SizedBox(width: 4),
+                                                  Text(
+                                                      'Validade: ${validade == null ? '-' : _yyyyMmDd(validade)}'),
+                                                ]),
+                                                Row(mainAxisSize: MainAxisSize.min, children: [
+                                                  const Icon(Icons.numbers, size: 16),
+                                                  const SizedBox(width: 4),
+                                                  Text('Qtd: $qtd'),
+                                                ]),
                                                 if (dias != null)
-                                                  _miniInfo(
-                                                    Icons.schedule,
-                                                    dias < 0 ? 'Vencido' : 'Vence em $dias dia(s)',
-                                                  ),
+                                                  Row(mainAxisSize: MainAxisSize.min, children: [
+                                                    const Icon(Icons.schedule, size: 16),
+                                                    const SizedBox(width: 4),
+                                                    Text(dias < 0
+                                                        ? 'Vencido'
+                                                        : 'Vence em $dias dia(s)'),
+                                                  ]),
                                               ],
                                             ),
                                           ],
@@ -367,115 +415,90 @@ class _ProdutosPageState extends State<ProdutosPage> {
                                       ),
                                     ],
                                   ),
-                                  const SizedBox(height: 10),
+                                  const SizedBox(height: 8),
                                   Row(
                                     children: [
-                                      // – Saída
                                       OutlinedButton.icon(
                                         onPressed: () async {
-                                          final q = await _askQtd(context, title: 'Registrar SAÍDA (lote ${i + 1})');
+                                          final q = await _askQtd(context,
+                                              title: 'Registrar SAÍDA (lote ${i + 1})');
                                           if (q == null) return;
 
-                                          // autenticação (mesmo fluxo da tua página)
                                           final session = SessionService();
                                           if (!session.adminOverride && !session.hasValidOperator) {
                                             final cred = await _askCredenciais(context);
                                             if (cred == null) return;
-                                            final res = await AuthzService().verifyWithRole(
-                                              nome: cred.$1, chave: cred.$2,
-                                            );
+                                            final res = await AuthzService()
+                                                .verifyWithRole(nome: cred.$1, chave: cred.$2);
                                             if (!mounted) return;
                                             if (!res.ok) {
-                                              ScaffoldMessenger.of(context).showSnackBar(
-                                                const SnackBar(content: Text('Credenciais inválidas.')),
-                                              );
+                                              _err('Credenciais inválidas.');
                                               return;
                                             }
                                             if (res.isAdmin) {
                                               await session.setAdminOverride(true, name: res.nome);
                                             } else {
-                                              await session.saveOrRefreshOperator(name: res.nome, key: cred.$2);
+                                              await session.saveOrRefreshOperator(
+                                                  name: res.nome, key: cred.$2);
                                             }
                                           }
 
                                           if (q > qtd) {
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              const SnackBar(content: Text('Quantidade maior que o disponível no lote.')),
-                                            );
+                                            _err('Quantidade maior que o disponível no lote.');
                                             return;
                                           }
 
                                           try {
-                                            // decrementa no lote
-                                            await d.reference.update({'quantidade': FieldValue.increment(-q)});
-                                            // decrementa no produto
+                                            await d.reference.update(
+                                                {'quantidade': FieldValue.increment(-q)});
                                             await d.reference.parent.parent!.update(
-                                              {'quantidade_total': FieldValue.increment(-q)},
-                                            );
-
-                                            // TODO: opcional — registrar movimento por lote/produto aqui.
-
-                                            if (mounted) {
-                                              ScaffoldMessenger.of(context).showSnackBar(
-                                                const SnackBar(content: Text('Saída registada.')),
-                                              );
-                                            }
+                                                {'quantidade_total': FieldValue.increment(-q)});
+                                            if (mounted) _ok('Saída registada.');
                                           } catch (e) {
-                                            if (mounted) {
-                                              ScaffoldMessenger.of(context).showSnackBar(
-                                                SnackBar(content: Text('Erro ao registar saída: $e')),
-                                              );
-                                            }
+                                            if (mounted) _err('Erro ao registar saída: $e');
                                           }
                                         },
-                                        icon: Icon(Icons.remove_circle_rounded, color: cs.error),
-                                        label: Text('Saída', style: TextStyle(color: cs.error)),
-                                        style: OutlinedButton.styleFrom(side: BorderSide(color: cs.error)),
+                                        icon: const Icon(Icons.remove_circle_rounded,
+                                            color: Color(0xFFE53935)),
+                                        label: const Text('Saída',
+                                            style:
+                                                TextStyle(color: Color(0xFFE53935))),
+                                        style: OutlinedButton.styleFrom(
+                                            side: const BorderSide(
+                                                color: Color(0xFFE53935))),
                                       ),
                                       const SizedBox(width: 8),
-                                      // + Entrada
                                       FilledButton.icon(
                                         onPressed: () async {
-                                          final q = await _askQtd(context, title: 'Registrar ENTRADA (lote ${i + 1})');
+                                          final q = await _askQtd(context,
+                                              title: 'Registrar ENTRADA (lote ${i + 1})');
                                           if (q == null) return;
 
-                                          // precisa ser admin (igual tua regra)
                                           final session = SessionService();
                                           if (!session.adminOverride) {
-                                            final cred = await _askCredenciais(context, titulo: 'Autenticar Admin');
+                                            final cred = await _askCredenciais(context,
+                                                titulo: 'Autenticar Admin');
                                             if (cred == null) return;
-                                            final res = await AuthzService().verifyWithRole(
-                                              nome: cred.$1, chave: cred.$2,
-                                            );
+                                            final res = await AuthzService()
+                                                .verifyWithRole(
+                                                    nome: cred.$1, chave: cred.$2);
                                             if (!mounted) return;
                                             if (!res.ok || !res.isAdmin) {
-                                              ScaffoldMessenger.of(context).showSnackBar(
-                                                const SnackBar(content: Text('Apenas administrador pode lançar ENTRADA.')),
-                                              );
+                                              _err('Apenas administrador pode lançar ENTRADA.');
                                               return;
                                             }
-                                            await session.setAdminOverride(true, name: res.nome);
+                                            await session.setAdminOverride(true,
+                                                name: res.nome);
                                           }
 
                                           try {
-                                            await d.reference.update({'quantidade': FieldValue.increment(q)});
+                                            await d.reference.update(
+                                                {'quantidade': FieldValue.increment(q)});
                                             await d.reference.parent.parent!.update(
-                                              {'quantidade_total': FieldValue.increment(q)},
-                                            );
-
-                                            // TODO: opcional — registrar movimento por lote/produto aqui.
-
-                                            if (mounted) {
-                                              ScaffoldMessenger.of(context).showSnackBar(
-                                                const SnackBar(content: Text('Entrada registada.')),
-                                              );
-                                            }
+                                                {'quantidade_total': FieldValue.increment(q)});
+                                            if (mounted) _ok('Entrada registada.');
                                           } catch (e) {
-                                            if (mounted) {
-                                              ScaffoldMessenger.of(context).showSnackBar(
-                                                SnackBar(content: Text('Erro ao registar entrada: $e')),
-                                              );
-                                            }
+                                            if (mounted) _err('Erro ao registar entrada: $e');
                                           }
                                         },
                                         icon: const Icon(Icons.add_circle_rounded),
@@ -507,7 +530,6 @@ class _ProdutosPageState extends State<ProdutosPage> {
     return '$y-$m-$d2';
   }
 
-  // ---------- Diálogos (reaproveitados) ----------
   Future<int?> _askQtd(BuildContext context, {required String title}) async {
     final ctrl = TextEditingController();
     final form = GlobalKey<FormState>();
@@ -594,68 +616,184 @@ class _ProdutosPageState extends State<ProdutosPage> {
   }
 }
 
-/// Mostra “Validade: … (via lote ou fallback)” e “Lotes: N” para um produto.
-class _ProximaValidadeDoProduto extends StatelessWidget {
-  final String produtoId;
-  final String fallbackVal;
-  final Widget Function(IconData, String) miniInfoBuilder;
-  const _ProximaValidadeDoProduto({
-    required this.produtoId,
-    required this.fallbackVal,
-    required this.miniInfoBuilder,
-  });
+// ===== Lines compactas =====
+Widget _infoLine(IconData icon, String label, String value) {
+  return _InfoFixedLine(icon: icon, label: label, value: value);
+}
 
-  String _fmt(DateTime d) {
-    final yyyy = d.year.toString().padLeft(4, '0');
-    final mm = d.month.toString().padLeft(2, '0');
-    final dd = d.day.toString().padLeft(2, '0');
-    return '$yyyy-$mm-$dd';
-  }
-
-  Future<(String validadeStr, int lotes)> _load() async {
-    final lotesCol = FirebaseFirestore.instance
-        .collection('produtos')
-        .doc(produtoId)
-        .collection('lotes');
-
-    final q = await lotesCol.orderBy('validade').get();
-    if (q.docs.isEmpty) return (fallbackVal, 0);
-
-    DateTime? earliest;
-    for (final d in q.docs) {
-      final v = d.data()['validade'];
-      if (v != null) {
-        final dt = (v as dynamic).toDate?.call();
-        if (dt is DateTime) {
-          if (earliest == null || dt.isBefore(earliest!)) earliest = dt;
-        }
-      }
-    }
-    final validadeStr = earliest == null ? fallbackVal : _fmt(earliest!);
-    return (validadeStr, q.docs.length);
-  }
+class _InfoFixedLine extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  const _InfoFixedLine({required this.icon, required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<(String, int)>(
-      future: _load(),
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Icon(icon, size: 16, color: onSurface.withOpacity(.8)),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            '$label: $value',
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 15),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _InfoFutureLine extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Future<String> future;
+  const _InfoFutureLine({required this.icon, required this.label, required this.future});
+
+  @override
+  Widget build(BuildContext context) {
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    return FutureBuilder<String>(
+      future: future,
       builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return miniInfoBuilder(Icons.event, 'Validade: …');
-        }
-        if (!snap.hasData) {
-          return miniInfoBuilder(Icons.event, 'Validade: $fallbackVal');
-        }
-        final (valStr, count) = snap.data!;
+        final value = snap.data ?? '…';
         return Row(
-          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            miniInfoBuilder(Icons.event, 'Validade: $valStr'),
-            const SizedBox(width: 12),
-            miniInfoBuilder(Icons.inventory_2, 'Lotes: $count'),
+            Icon(icon, size: 16, color: onSurface.withOpacity(.8)),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text('$label: $value', overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15)),
+            ),
           ],
         );
       },
+    );
+  }
+}
+
+// ===== Card mais compacto e com badge forte =====
+class _ProdutoQuickCard extends StatelessWidget {
+  final String title;
+  final Color headerColor;
+  final String estadoLabel;
+  final Color estadoColor;
+  final List<Widget> lines;
+  final VoidCallback onOpenLotes;
+  final VoidCallback onOpenEmail;
+
+  const _ProdutoQuickCard({
+    required this.title,
+    required this.headerColor,
+    required this.estadoLabel,
+    required this.estadoColor,
+    required this.lines,
+    required this.onOpenLotes,
+    required this.onOpenEmail,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final border = Theme.of(context).dividerColor;
+    final onPrimary = Theme.of(context).colorScheme.onPrimary;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: border),
+      ),
+      child: Column(
+        children: [
+          // cabeçalho
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            decoration: BoxDecoration(
+              color: headerColor,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: onPrimary,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16.5,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: estadoColor,
+                    borderRadius: BorderRadius.circular(999),
+                    boxShadow: [
+                      BoxShadow(color: estadoColor.withOpacity(.25), blurRadius: 6, offset: const Offset(0, 2)),
+                    ],
+                  ),
+                  child: const Text(
+                    // label vem de fora, mas mantém estilo
+                    '',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12.5,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // corpo
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+              child: DefaultTextStyle(
+                style: const TextStyle(fontSize: 15),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ...lines.expand((w) sync* {
+                      yield w;
+                      yield const SizedBox(height: 4);
+                    }).toList()
+                      ..removeLast(),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        IconButton.filledTonal(
+                          tooltip: 'Email',
+                          onPressed: onOpenEmail,
+                          icon: const Icon(Icons.mail_outline_rounded, size: 20),
+                        ),
+                        const Spacer(),
+                        TextButton.icon(
+                          onPressed: onOpenLotes,
+                          icon: const Icon(Icons.inventory_2_outlined, size: 18),
+                          label: const Text('Abrir lotes'),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                            textStyle: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

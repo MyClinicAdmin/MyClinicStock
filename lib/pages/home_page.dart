@@ -7,8 +7,6 @@ import 'package:kwalps_st/pages/produtos_page.dart';
 import 'package:kwalps_st/pages/admin_page.dart';
 import 'package:kwalps_st/services/authz_service.dart';
 import 'package:kwalps_st/services/session_service.dart';
-import 'package:kwalps_st/pages/admin_page.dart';
-
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -42,34 +40,49 @@ class _HomePageState extends State<HomePage> {
   late final List<_Dest> _destinations = [
     _Dest(
       label: 'Em Falta',
+      tooltip: 'Produtos em falta',
       icon: Icons.warning_amber_rounded,
+      selectedIcon: Icons.warning_amber,
       builder: (_) => const ProdutosEmFaltaPage(),
     ),
     _Dest(
       label: 'A Vencer',
-      icon: Icons.calendar_month,
+      tooltip: 'Validades a vencer',
+      icon: Icons.calendar_month_outlined,
+      selectedIcon: Icons.calendar_month,
       builder: (_) => const ProdutosAVencerPage(),
     ),
     _Dest(
       label: 'Produtos',
-      icon: Icons.inventory_2_rounded,
+      tooltip: 'Catálogo de produtos',
+      icon: Icons.inventory_2_outlined,
+      selectedIcon: Icons.inventory_2_rounded,
       builder: (_) => const ProdutosPage(),
     ),
+    // ✅ Somente no menu, sem FAB fixo
     _Dest(
-      label: 'Email',
-      icon: Icons.mail_outline_rounded,
-      builder: (_) => const EnviarEmailPage(),
-    ),
-    _Dest(
-      label: 'Cadastrar',
-      icon: Icons.add_box_rounded,
+      label: 'Adicionar Lotes', // ou "Cadastrar Lotes" se preferir
+      tooltip: 'Registrar/Adicionar lotes',
+      icon: Icons.playlist_add_outlined,
+      selectedIcon: Icons.playlist_add,
+      // Por enquanto leva para a mesma page; depois podemos trocar por uma page específica de lotes
       builder: (_) => const CadastroProdutoPage(),
     ),
     _Dest(
+      label: 'Email',
+      tooltip: 'Enviar notificações por email',
+      icon: Icons.mail_outline_rounded,
+      selectedIcon: Icons.mail_rounded,
+      builder: (_) => const EnviarEmailPage(),
+    ),
+    _Dest(
       label: 'Admin',
-      icon: Icons.admin_panel_settings_rounded,
-      builder: (_) =>
-          _adminAuthed ? const AdminPage() : _AdminLockedView(onLoginTap: _openAdminLoginSheet),
+      tooltip: 'Gestão de autorizados e mais',
+      icon: Icons.admin_panel_settings_outlined,
+      selectedIcon: Icons.admin_panel_settings_rounded,
+      builder: (_) => _adminAuthed
+          ? const AdminPage()
+          : _AdminLockedView(onLoginTap: _openAdminLoginSheet),
     ),
   ];
 
@@ -241,20 +254,10 @@ class _HomePageState extends State<HomePage> {
       builder: (context, constraints) {
         final isWide = constraints.maxWidth >= 900;
 
-        final fab = (_destinations[_index].label == 'Cadastrar')
-            ? null
-            : FloatingActionButton.extended(
-                onPressed: () => setState(() {
-                  _index = _destinations.indexWhere((d) => d.label == 'Cadastrar');
-                }),
-                icon: const Icon(Icons.add_box_rounded),
-                label: const Text('Cadastrar'),
-              );
-
         if (isWide) {
           // Desktop/Web
           return Scaffold(
-            floatingActionButton: fab,
+            // ✅ FAB removido — só navegação
             body: Row(
               children: [
                 _SideRail(
@@ -265,6 +268,7 @@ class _HomePageState extends State<HomePage> {
                       (_destinations[_index].label == 'Admin' && _adminAuthed)
                           ? _logoutAdmin
                           : null,
+                  adminUser: _adminUser,
                 ),
                 Expanded(child: currentPage),
               ],
@@ -275,12 +279,19 @@ class _HomePageState extends State<HomePage> {
         // Mobile/Tablet
         return Scaffold(
           body: currentPage,
-          floatingActionButton: fab,
+          // ✅ Sem FAB — ação via menu
           bottomNavigationBar: NavigationBar(
             selectedIndex: _index,
             onDestinationSelected: _onSelect,
             destinations: _destinations
-                .map((d) => NavigationDestination(icon: Icon(d.icon), label: d.label))
+                .map(
+                  (d) => NavigationDestination(
+                    icon: Icon(d.icon),
+                    selectedIcon: Icon(d.selectedIcon ?? d.icon),
+                    label: d.label,
+                    tooltip: d.tooltip,
+                  ),
+                )
                 .toList(),
           ),
         );
@@ -293,9 +304,17 @@ class _HomePageState extends State<HomePage> {
 
 class _Dest {
   final String label;
+  final String? tooltip;
   final IconData icon;
+  final IconData? selectedIcon;
   final WidgetBuilder builder;
-  _Dest({required this.label, required this.icon, required this.builder});
+  _Dest({
+    required this.label,
+    required this.icon,
+    required this.builder,
+    this.selectedIcon,
+    this.tooltip,
+  });
 }
 
 class _SideRail extends StatelessWidget {
@@ -303,6 +322,7 @@ class _SideRail extends StatelessWidget {
   final ValueChanged<int> onSelect;
   final List<_Dest> destinations;
   final VoidCallback? onLogoutTap;
+  final String? adminUser;
 
   const _SideRail({
     super.key,
@@ -310,6 +330,7 @@ class _SideRail extends StatelessWidget {
     required this.onSelect,
     required this.destinations,
     this.onLogoutTap,
+    this.adminUser,
   });
 
   @override
@@ -321,7 +342,7 @@ class _SideRail extends StatelessWidget {
       onDestinationSelected: onSelect,
       extended: true,
       groupAlignment: -0.8,
-      minExtendedWidth: 230,
+      minExtendedWidth: 240,
       backgroundColor: Colors.transparent,
       leading: Padding(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -343,16 +364,39 @@ class _SideRail extends StatelessWidget {
           ? null
           : Padding(
               padding: const EdgeInsets.only(left: 8, right: 8, bottom: 12),
-              child: FilledButton.tonalIcon(
-                onPressed: onLogoutTap,
-                icon: const Icon(Icons.logout_rounded),
-                label: const Text('Sair'),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (adminUser != null)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 8, right: 8, bottom: 8),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.verified_user_rounded, size: 18),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              adminUser!,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.labelMedium,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  FilledButton.tonalIcon(
+                    onPressed: onLogoutTap,
+                    icon: const Icon(Icons.logout_rounded),
+                    label: const Text('Sair'),
+                  ),
+                ],
               ),
             ),
       destinations: destinations
           .map(
             (d) => NavigationRailDestination(
               icon: Icon(d.icon),
+              selectedIcon: Icon(d.selectedIcon ?? d.icon),
               label: Text(d.label),
             ),
           )
@@ -363,7 +407,7 @@ class _SideRail extends StatelessWidget {
       width: 260,
       decoration: BoxDecoration(
         color: cs.surface,
-        border: Border(right: BorderSide(color: cs.outline)),
+        border: Border(right: BorderSide(color: cs.outlineVariant)),
       ),
       child: rail,
     );

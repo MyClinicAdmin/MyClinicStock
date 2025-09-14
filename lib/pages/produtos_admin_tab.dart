@@ -12,17 +12,133 @@ class ProdutosAdminTab extends StatefulWidget {
 class _ProdutosAdminTabState extends State<ProdutosAdminTab> {
   final _formKey = GlobalKey<FormState>();
   final _nomeCtrl = TextEditingController();
-  bool _saving = false;
+  final _minCtrl = TextEditingController(text: '5');
 
-  // fornecedor selecionado (id do doc) e cache para resolver nome/email ao salvar
-  String? _fornecedorSelId;
-  List<_FornecedorLite> _fornecedoresCache = const [];
+  final _searchCtrl = TextEditingController();
+  String _query = '';
+
+  bool _saving = false;
 
   @override
   void dispose() {
     _nomeCtrl.dispose();
+    _minCtrl.dispose();
+    _searchCtrl.dispose();
     super.dispose();
   }
+
+  // ===================== Diálogos grandes (Sucesso/Erro/Confirmação) =====================
+
+  Future<void> _showResultDialog({
+    required bool ok,
+    String? title,
+    required String message,
+  }) async {
+    final cs = Theme.of(context).colorScheme;
+    final icon = ok ? Icons.check_circle_rounded : Icons.error_outline_rounded;
+    final color = ok ? cs.primary : cs.error;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (_) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 56, color: color),
+              const SizedBox(height: 12),
+              Text(
+                title ?? (ok ? 'Sucesso' : 'Ocorreu um erro'),
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('OK'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<bool> _confirm({
+    required String title,
+    required String message,
+    IconData icon = Icons.help_outline_rounded,
+    Color? color,
+    String cancelText = 'Cancelar',
+    String confirmText = 'Confirmar',
+  }) async {
+    final cs = Theme.of(context).colorScheme;
+    final icColor = color ?? cs.primary;
+
+    final res = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (_) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 48, color: icColor),
+              const SizedBox(height: 12),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: Text(cancelText),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      child: Text(confirmText),
+                    ),
+                  ),
+                ],
+              )
+            ],
+          ),
+        ),
+      ),
+    );
+    return res == true;
+  }
+
+  // ======================================================================
 
   Future<void> _salvar() async {
     if (_saving) return;
@@ -33,43 +149,66 @@ class _ProdutosAdminTabState extends State<ProdutosAdminTab> {
 
     try {
       final nome = _nomeCtrl.text.trim();
-      final fornecedor = _fornecedoresCache
-          .firstWhere((f) => f.id == _fornecedorSelId, orElse: () => _FornecedorLite.empty());
+      final minimo = int.parse(_minCtrl.text.trim());
 
       await FirebaseFirestore.instance.collection('produtos').add({
         'nome': nome,
+        'estoque_minimo': minimo,
+        'quantidade_total': 0, // inicia sem stock
         'criado_em': FieldValue.serverTimestamp(),
-        // ligação ao fornecedor (opcional)
-        'fornecedor_id': (fornecedor.id ?? '').isNotEmpty ? fornecedor.id : null,
-        'fornecedor': (fornecedor.nome ?? '').isNotEmpty ? fornecedor.nome : null,
-        'fornecedor_email': (fornecedor.email ?? '').isNotEmpty ? fornecedor.email : null,
-        'fornecedor_normalizado': (fornecedor.nome ?? '').trim().toLowerCase(),
       });
 
-      _ok('Produto cadastrado.');
+      await _showResultDialog(
+        ok: true,
+        title: 'Produto cadastrado',
+        message: 'O produto "$nome" foi criado com sucesso.',
+      );
+
       _nomeCtrl.clear();
-      setState(() => _fornecedorSelId = null);
+      _minCtrl.text = '5';
       _formKey.currentState?.reset();
     } catch (e) {
-      _err('Erro ao salvar: $e');
+      await _showResultDialog(
+        ok: false,
+        title: 'Erro ao salvar',
+        message: '$e',
+      );
     } finally {
       if (mounted) setState(() => _saving = false);
     }
   }
 
-  Future<void> _delete(String id) async {
-    try {
-      await FirebaseFirestore.instance.collection('produtos').doc(id).delete();
-      _ok('Produto removido.');
-    } catch (e) {
-      _err('Falha ao remover: $e');
+  Future<void> _confirmarDelete(String id, String nome) async {
+    final ok = await _confirm(
+      title: 'Eliminar produto?',
+      message:
+          'Tem certeza que deseja eliminar "${nome.isEmpty ? '(sem nome)' : nome}"?\nEsta ação não pode ser desfeita.',
+      icon: Icons.delete_forever_rounded,
+      color: Theme.of(context).colorScheme.error,
+      confirmText: 'Eliminar',
+    );
+
+    if (ok) {
+      await _delete(id, nome);
     }
   }
 
-  void _ok(String msg) =>
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-  void _err(String msg) => ScaffoldMessenger.of(context)
-      .showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
+  Future<void> _delete(String id, String nome) async {
+    try {
+      await FirebaseFirestore.instance.collection('produtos').doc(id).delete();
+      await _showResultDialog(
+        ok: true,
+        title: 'Produto eliminado',
+        message: 'O produto "${nome.isEmpty ? '(sem nome)' : nome}" foi removido.',
+      );
+    } catch (e) {
+      await _showResultDialog(
+        ok: false,
+        title: 'Falha ao eliminar',
+        message: '$e',
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -93,10 +232,11 @@ class _ProdutosAdminTabState extends State<ProdutosAdminTab> {
                 key: _formKey,
                 child: Column(
                   children: [
-                    // Nome + Salvar
+                    // Nome + Estoque mínimo + Salvar
                     Row(
                       children: [
                         Expanded(
+                          flex: 2,
                           child: TextFormField(
                             controller: _nomeCtrl,
                             decoration: const InputDecoration(
@@ -105,6 +245,25 @@ class _ProdutosAdminTabState extends State<ProdutosAdminTab> {
                             ),
                             validator: (v) =>
                                 (v == null || v.trim().isEmpty) ? 'Informe o nome' : null,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _minCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Estoque mínimo',
+                              filled: true,
+                            ),
+                            keyboardType: TextInputType.number,
+                            validator: (v) {
+                              if (v == null || v.trim().isEmpty) {
+                                return 'Informe o mínimo';
+                              }
+                              final n = int.tryParse(v.trim());
+                              if (n == null || n < 0) return 'Valor inválido';
+                              return null;
+                            },
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -120,68 +279,6 @@ class _ProdutosAdminTabState extends State<ProdutosAdminTab> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 12),
-
-                    // SELECT de fornecedor (nome + email)
-                    StreamBuilder<QuerySnapshot>(
-                      stream: FirebaseFirestore.instance
-                          .collection('fornecedores')
-                          .orderBy('nome')
-                          .snapshots(),
-                      builder: (context, snap) {
-                        if (snap.hasError) {
-                          return const Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text('Erro ao carregar fornecedores.'),
-                          );
-                        }
-                        if (!snap.hasData) {
-                          return const LinearProgressIndicator();
-                        }
-
-                        final docs = snap.data!.docs;
-                        _fornecedoresCache = docs
-                            .map((d) {
-                              final data = (d.data() as Map<String, dynamic>? ?? {});
-                              return _FornecedorLite(
-                                id: d.id,
-                                nome: (data['nome'] ?? '').toString().trim(),
-                                email: (data['email'] ?? '').toString().trim(),
-                              );
-                            })
-                            .toList();
-
-                        if (docs.isEmpty) {
-                          return const Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text('Nenhum fornecedor cadastrado ainda.'),
-                          );
-                        }
-
-                        // garantir que a seleção ainda existe
-                        final exists = _fornecedoresCache.any((f) => f.id == _fornecedorSelId);
-                        if (!exists) _fornecedorSelId = null;
-
-                        return DropdownButtonFormField<String>(
-                          value: exists ? _fornecedorSelId : null,
-                          items: _fornecedoresCache.map((f) {
-                            final label = (f.email == null || f.email!.isEmpty)
-                                ? (f.nome ?? '')
-                                : '${f.nome} — ${f.email}';
-                            return DropdownMenuItem<String>(
-                              value: f.id,
-                              child: Text(label),
-                            );
-                          }).toList(),
-                          onChanged: (v) => setState(() => _fornecedorSelId = v),
-                          decoration: const InputDecoration(
-                            labelText: 'Fornecedor',
-                            filled: true,
-                          ),
-                          validator: (v) => v == null ? 'Selecione um fornecedor' : null,
-                        );
-                      },
-                    ),
                   ],
                 ),
               ),
@@ -189,11 +286,31 @@ class _ProdutosAdminTabState extends State<ProdutosAdminTab> {
           ),
 
           const SizedBox(height: 12),
-          const Text('Produtos existentes', style: TextStyle(fontWeight: FontWeight.w700)),
+          // Cabeçalho + barra de pesquisa
+          Row(
+            children: [
+              const Text('Produtos existentes', style: TextStyle(fontWeight: FontWeight.w700)),
+              const Spacer(),
+              SizedBox(
+                width: 360,
+                child: TextField(
+                  controller: _searchCtrl,
+                  decoration: InputDecoration(
+                    hintText: 'Pesquisar por nome…',
+                    prefixIcon: const Icon(Icons.search),
+                    isDense: true,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  ),
+                  onChanged: (v) => setState(() => _query = v.trim().toLowerCase()),
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 8),
 
           Expanded(
-            child: StreamBuilder<QuerySnapshot>(
+            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: FirebaseFirestore.instance
                   .collection('produtos')
                   .orderBy('nome')
@@ -211,9 +328,17 @@ class _ProdutosAdminTabState extends State<ProdutosAdminTab> {
                   return const Center(child: CircularProgressIndicator());
                 }
 
-                final docs = snap.data!.docs;
+                var docs = snap.data!.docs;
+                if (_query.isNotEmpty) {
+                  docs = docs.where((d) {
+                    final data = d.data();
+                    final nome = (data['nome'] ?? '').toString().toLowerCase();
+                    return nome.contains(_query);
+                  }).toList();
+                }
+
                 if (docs.isEmpty) {
-                  return const Center(child: Text('Nenhum produto cadastrado.'));
+                  return const Center(child: Text('Nenhum produto encontrado.'));
                 }
 
                 return ListView.separated(
@@ -221,11 +346,9 @@ class _ProdutosAdminTabState extends State<ProdutosAdminTab> {
                   separatorBuilder: (_, __) => const SizedBox(height: 8),
                   itemBuilder: (_, i) {
                     final d = docs[i];
-                    // ✅ leitura segura: evita "Bad state: field 'fornecedor'..."
-                    final data = (d.data() as Map<String, dynamic>? ?? {});
+                    final data = d.data();
                     final nome = (data['nome'] ?? '').toString().trim();
-                    final fornecedorNome = (data['fornecedor'] ?? '').toString().trim();
-                    final fornecedorEmail = (data['fornecedor_email'] ?? '').toString().trim();
+                    final minimo = (data['estoque_minimo'] ?? 0) as int;
 
                     return Card(
                       shape: RoundedRectangleBorder(
@@ -237,16 +360,10 @@ class _ProdutosAdminTabState extends State<ProdutosAdminTab> {
                           nome.isEmpty ? '(sem nome)' : nome,
                           style: const TextStyle(fontWeight: FontWeight.w600),
                         ),
-                        subtitle: (fornecedorNome.isEmpty && fornecedorEmail.isEmpty)
-                            ? null
-                            : Text(
-                                fornecedorEmail.isEmpty
-                                    ? 'Fornecedor: $fornecedorNome'
-                                    : 'Fornecedor: $fornecedorNome — $fornecedorEmail',
-                              ),
+                        subtitle: Text('Mínimo: $minimo'),
                         trailing: IconButton(
                           tooltip: 'Eliminar',
-                          onPressed: () => _delete(d.id),
+                          onPressed: () => _confirmarDelete(d.id, nome),
                           icon: const Icon(Icons.delete_outline),
                         ),
                       ),
@@ -260,13 +377,4 @@ class _ProdutosAdminTabState extends State<ProdutosAdminTab> {
       ),
     );
   }
-}
-
-class _FornecedorLite {
-  final String? id;
-  final String? nome;
-  final String? email;
-
-  const _FornecedorLite({this.id, this.nome, this.email});
-  factory _FornecedorLite.empty() => const _FornecedorLite();
 }

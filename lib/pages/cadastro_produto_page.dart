@@ -12,6 +12,8 @@ class CadastroProdutoPage extends StatefulWidget {
   State<CadastroProdutoPage> createState() => _CadastroProdutoPageState();
 }
 
+enum _PrecoModo { unidade, total }
+
 class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
   // --- STATE COMPARTILHADO PELO WIZARD ---
   final _formKey = GlobalKey<FormState>();
@@ -23,8 +25,14 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
   final _validadeCtrl = TextEditingController();
   final _codigoCtrl = TextEditingController();
 
+  // Preços
+  final _precoUnitCtrl = TextEditingController(); // p/ unidade
+  final _precoTotalCtrl = TextEditingController(); // p/ lote
+  _PrecoModo _precoModo = _PrecoModo.unidade;
+
   DateTime? _validade;
   final _dateFmt = DateFormat('dd/MM/yyyy');
+  final _moneyFmt = NumberFormat.currency(symbol: 'Kz ', decimalDigits: 2);
   bool _salvando = false;
 
   @override
@@ -32,18 +40,21 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
     _qtdCtrl.dispose();
     _validadeCtrl.dispose();
     _codigoCtrl.dispose();
+    _precoUnitCtrl.dispose();
+    _precoTotalCtrl.dispose();
     super.dispose();
   }
 
   // ---------------- UI HELPERS ----------------
   InputDecoration _input(BuildContext context, String label,
-      {Widget? suffixIcon, String? hint}) {
+      {Widget? suffixIcon, String? hint, Widget? prefix}) {
     final cs = Theme.of(context).colorScheme;
     return InputDecoration(
       labelText: label,
       hintText: hint,
       filled: true,
       fillColor: cs.surface, // fundo visível
+      prefixIcon: prefix,
       suffixIcon: suffixIcon,
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
@@ -66,10 +77,66 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
             style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
       );
 
-  void _ok(String msg) =>
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-  void _erro(String msg) => ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: Colors.red));
+  // ----------------- Avisos (dialogs compactos) -----------------
+  Future<void> _dialogAviso({
+    required bool ok,
+    String? title,
+    required String message,
+  }) async {
+    final cs = Theme.of(context).colorScheme;
+    final icon = ok ? Icons.check_circle_rounded : Icons.error_outline_rounded;
+    final color = ok ? cs.primary : cs.error;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (_) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 28),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(22, 22, 22, 14),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 46, color: color),
+              const SizedBox(height: 10),
+              Text(
+                title ?? (ok ? 'Sucesso' : 'Ocorreu um erro'),
+                textAlign: TextAlign.center,
+                style: Theme.of(context)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('OK'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ---------------- UTIL (preço) ----------------
+  double? _parseMoney(String raw) {
+    if (raw.trim().isEmpty) return null;
+    final s = raw.replaceAll('.', '').replaceAll(',', '.'); // básico
+    return double.tryParse(s);
+  }
+
+  String _formatMoney(num v) => _moneyFmt.format(v);
 
   // --------------- AÇÕES ---------------
   Future<void> _pickDate() async {
@@ -97,8 +164,33 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
       _validade = null;
       _validadeCtrl.clear();
       _codigoCtrl.clear();
+      _precoUnitCtrl.clear();
+      _precoTotalCtrl.clear();
+      _precoModo = _PrecoModo.unidade;
     });
     _formKey.currentState?.reset();
+  }
+
+  ({double? unit, double? total}) _resolvePrecos() {
+    final qtd = int.tryParse(_qtdCtrl.text.trim()) ?? 0;
+    final unit = _parseMoney(_precoUnitCtrl.text);
+    final total = _parseMoney(_precoTotalCtrl.text);
+
+    if (_precoModo == _PrecoModo.unidade) {
+      if (unit != null && qtd > 0) {
+        final t = unit * qtd;
+        return (unit: unit, total: t);
+      }
+      // se não informou unit, não força nada
+      return (unit: unit, total: total);
+    } else {
+      // total do lote
+      if (total != null && qtd > 0) {
+        final u = total / qtd;
+        return (unit: u, total: total);
+      }
+      return (unit: unit, total: total);
+    }
   }
 
   Future<void> _salvar({BuildContext? dialogCtx}) async {
@@ -106,17 +198,19 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
 
     final qtd = int.tryParse(_qtdCtrl.text.trim()) ?? 0;
     if (_produtoId == null) {
-      _erro('Escolha um produto.');
+      await _dialogAviso(ok: false, title: 'Produto', message: 'Escolha um produto.');
       return;
     }
     if (qtd <= 0) {
-      _erro('Quantidade deve ser maior que zero.');
+      await _dialogAviso(ok: false, title: 'Quantidade inválida', message: 'Informe uma quantidade maior que zero.');
       return;
     }
     if (_validade == null) {
-      _erro('Escolha a validade.');
+      await _dialogAviso(ok: false, title: 'Validade', message: 'Escolha a data de validade.');
       return;
     }
+
+    final precos = _resolvePrecos();
 
     setState(() => _salvando = true);
     FocusScope.of(context).unfocus();
@@ -125,19 +219,28 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
       final refProd =
           FirebaseFirestore.instance.collection('produtos').doc(_produtoId);
 
-      await refProd.collection('lotes').add({
-        'codigo':
-            _codigoCtrl.text.trim().isEmpty ? null : _codigoCtrl.text.trim(),
+      final loteData = <String, dynamic>{
+        'codigo': _codigoCtrl.text.trim().isEmpty ? null : _codigoCtrl.text.trim(),
         'quantidade': qtd,
         'validade': _validade,
         'criado_em': FieldValue.serverTimestamp(),
-      });
+      };
+
+      if (precos.unit != null) loteData['preco_unitario'] = double.parse(precos.unit!.toStringAsFixed(2));
+      if (precos.total != null) loteData['preco_total'] = double.parse(precos.total!.toStringAsFixed(2));
+
+      await refProd.collection('lotes').add(loteData);
 
       await refProd.update({
         'quantidade_total': FieldValue.increment(qtd),
       }).catchError((_) {});
 
-      _ok('Lote salvo com sucesso.');
+      await _dialogAviso(
+        ok: true,
+        title: 'Lote salvo',
+        message: 'Lote de "${_produtoNome ?? ''}" registado com sucesso.',
+      );
+
       _limpar();
 
       // fecha o modal (o contexto deve ser o do diálogo)
@@ -145,7 +248,7 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
         Navigator.of(dialogCtx).pop();
       }
     } catch (e) {
-      _erro('Falha ao salvar lote: $e');
+      await _dialogAviso(ok: false, title: 'Falha ao salvar', message: '$e');
     } finally {
       if (mounted) setState(() => _salvando = false);
     }
@@ -163,6 +266,40 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
 
         return StatefulBuilder(
           builder: (ctx, setModalState) {
+            // Helpers de UI internas ao modal
+            Widget _precoModoChips() {
+              return Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  ChoiceChip(
+                    label: const Text('Preço por unidade'),
+                    selected: _precoModo == _PrecoModo.unidade,
+                    onSelected: (_) => setModalState(() => _precoModo = _PrecoModo.unidade),
+                    avatar: const Icon(Icons.calculate, size: 18),
+                  ),
+                  ChoiceChip(
+                    label: const Text('Preço total do lote'),
+                    selected: _precoModo == _PrecoModo.total,
+                    onSelected: (_) => setModalState(() => _precoModo = _PrecoModo.total),
+                    avatar: const Icon(Icons.payments_rounded, size: 18),
+                  ),
+                ],
+              );
+            }
+
+            String _previewTotal() {
+              final qtd = int.tryParse(_qtdCtrl.text.trim()) ?? 0;
+              final unit = _parseMoney(_precoUnitCtrl.text);
+              final total = _parseMoney(_precoTotalCtrl.text);
+              if (_precoModo == _PrecoModo.unidade) {
+                if (unit != null && qtd > 0) return _formatMoney(unit * qtd);
+              } else {
+                if (total != null) return _formatMoney(total);
+              }
+              return '—';
+            }
+
             Widget conteudo;
 
             // ===== PASSO 1 — PRODUTO =====
@@ -180,8 +317,7 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
                     builder: (context, snap) {
                       if (snap.hasError) {
                         return ListTile(
-                          leading:
-                              const Icon(Icons.error_outline, color: Colors.red),
+                          leading: const Icon(Icons.error_outline, color: Colors.red),
                           title: const Text('Erro ao carregar produtos.'),
                           trailing: IconButton(
                             onPressed: () => setModalState(() {}),
@@ -208,10 +344,8 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
                       }
 
                       final items = docs.map((d) {
-                        final data =
-                            d.data() as Map<String, dynamic>? ?? {};
-                        final nome =
-                            (data['nome'] ?? '').toString().trim();
+                        final data = d.data() as Map<String, dynamic>? ?? {};
+                        final nome = (data['nome'] ?? '').toString().trim();
                         return DropdownMenuItem<String>(
                           value: d.id,
                           child: Text(
@@ -232,18 +366,14 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
                               (d) => d.id == v,
                               orElse: () => docs.first,
                             );
-                            final data =
-                                doc.data() as Map<String, dynamic>? ?? {};
-                            _produtoNome =
-                                (data['nome'] ?? '').toString().trim();
+                            final data = doc.data() as Map<String, dynamic>? ?? {};
+                            _produtoNome = (data['nome'] ?? '').toString().trim();
                           });
                         },
                         decoration: _input(context, 'Produto (selecione)'),
                         dropdownColor: cs.surface, // fundo do menu
                         isExpanded: true,
-                        validator: (v) => (v == null || v.isEmpty)
-                            ? 'Selecione um produto'
-                            : null,
+                        validator: (v) => (v == null || v.isEmpty) ? 'Selecione um produto' : null,
                         style: const TextStyle(fontSize: 16),
                         menuMaxHeight: 400,
                       );
@@ -268,20 +398,16 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
                         child: TextFormField(
                           controller: _qtdCtrl,
                           keyboardType: TextInputType.number,
-                          inputFormatters: [
-                            FilteringTextInputFormatter.digitsOnly
-                          ],
-                          decoration: _input(
-                              context, 'Quantidade (nº de unidades)'),
-                          style: const TextStyle(
-                              fontSize: 18, fontWeight: FontWeight.w700),
+                          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                          decoration: _input(context, 'Quantidade (nº de unidades)'),
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                          onChanged: (_) => setModalState(() {}),
                         ),
                       ),
                       const SizedBox(width: 8),
                       IconButton.filledTonal(
                         onPressed: () {
-                          final n =
-                              int.tryParse(_qtdCtrl.text.trim()) ?? 1;
+                          final n = int.tryParse(_qtdCtrl.text.trim()) ?? 1;
                           final v = (n > 1) ? n - 1 : 1;
                           _qtdCtrl.text = '$v';
                           setModalState(() {});
@@ -293,8 +419,7 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
                       const SizedBox(width: 6),
                       IconButton.filled(
                         onPressed: () {
-                          final n =
-                              int.tryParse(_qtdCtrl.text.trim()) ?? 1;
+                          final n = int.tryParse(_qtdCtrl.text.trim()) ?? 1;
                           _qtdCtrl.text = '${n + 1}';
                           setModalState(() {});
                         },
@@ -315,8 +440,10 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
                           controller: _validadeCtrl,
                           readOnly: true,
                           decoration: _input(
-                              context, 'Validade',
-                              suffixIcon: const Icon(Icons.calendar_today)),
+                            context,
+                            'Validade',
+                            suffixIcon: const Icon(Icons.calendar_today),
+                          ),
                           style: const TextStyle(fontSize: 16),
                         ),
                       ),
@@ -335,18 +462,101 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
 
                   const SizedBox(height: 12),
 
+                  // CÓDIGO
                   TextFormField(
                     controller: _codigoCtrl,
-                    decoration:
-                        _input(context, 'Código / Nº do lote (opcional)'),
+                    decoration: _input(context, 'Código / Nº do lote (opcional)'),
                     style: const TextStyle(fontSize: 16),
                   ),
+
+                  const Divider(height: 24),
+
+                  // Modo de preço
+                  Text('Preço', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 8),
+                  _precoModoChips(),
+                  const SizedBox(height: 10),
+
+                  if (_precoModo == _PrecoModo.unidade) ...[
+                    // Preço por UNIDADE -> total calculado
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _precoUnitCtrl,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+                            decoration: _input(
+                              context,
+                              'Preço por unidade',
+                              prefix: const Padding(
+                                padding: EdgeInsets.only(left: 12, right: 6),
+                                child: Text('Kz', style: TextStyle(fontWeight: FontWeight.w700)),
+                              ),
+                            ),
+                            onChanged: (_) => setModalState(() {}),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextFormField(
+                            controller: TextEditingController(text: _previewTotal()),
+                            readOnly: true,
+                            decoration: _input(context, 'Total (auto)'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ] else ...[
+                    // Preço TOTAL DO LOTE -> unidade estimada
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _precoTotalCtrl,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+                            decoration: _input(
+                              context,
+                              'Preço total do lote',
+                              prefix: const Padding(
+                                padding: EdgeInsets.only(left: 12, right: 6),
+                                child: Text('Kz', style: TextStyle(fontWeight: FontWeight.w700)),
+                              ),
+                            ),
+                            onChanged: (_) => setModalState(() {}),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextFormField(
+                            controller: TextEditingController(
+                              text: (() {
+                                final qtd = int.tryParse(_qtdCtrl.text.trim()) ?? 0;
+                                final tot = _parseMoney(_precoTotalCtrl.text);
+                                if (tot != null && qtd > 0) {
+                                  return _formatMoney(tot / qtd);
+                                }
+                                return '—';
+                              })(),
+                            ),
+                            readOnly: true,
+                            decoration: _input(context, 'Unitário (estimado)'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               );
             }
             // ===== PASSO 3 — CONFIRMAR =====
             else {
               final qtd = int.tryParse(_qtdCtrl.text.trim()) ?? 0;
+              final precos = _resolvePrecos();
+              final unitStr = (precos.unit != null) ? _formatMoney(precos.unit!) : '—';
+              final totalStr = (precos.total != null) ? _formatMoney(precos.total!) : '—';
+
               conteudo = Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -362,33 +572,21 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
                     ),
                     child: Column(
                       children: [
-                        _linhaResumo(
-                          icon: Icons.inventory_2,
-                          label: 'Produto',
-                          value: _produtoNome ?? '—',
-                        ),
+                        _linhaResumo(icon: Icons.inventory_2, label: 'Produto', value: _produtoNome ?? '—'),
                         const SizedBox(height: 8),
-                        _linhaResumo(
-                          icon: Icons.onetwothree,
-                          label: 'Quantidade',
-                          value: qtd > 0 ? '$qtd un' : '—',
-                        ),
+                        _linhaResumo(icon: Icons.onetwothree, label: 'Quantidade', value: qtd > 0 ? '$qtd un' : '—'),
                         const SizedBox(height: 8),
-                        _linhaResumo(
-                          icon: Icons.event,
-                          label: 'Validade',
-                          value: _validadeCtrl.text.isEmpty
-                              ? '—'
-                              : _validadeCtrl.text,
-                        ),
+                        _linhaResumo(icon: Icons.event, label: 'Validade', value: _validadeCtrl.text.isEmpty ? '—' : _validadeCtrl.text),
                         if (_codigoCtrl.text.trim().isNotEmpty) ...[
                           const SizedBox(height: 8),
-                          _linhaResumo(
-                            icon: Icons.qr_code_2,
-                            label: 'Código',
-                            value: _codigoCtrl.text.trim(),
-                          ),
+                          _linhaResumo(icon: Icons.qr_code_2, label: 'Código', value: _codigoCtrl.text.trim()),
                         ],
+                        const SizedBox(height: 10),
+                        const Divider(),
+                        const SizedBox(height: 6),
+                        _linhaResumo(icon: Icons.calculate, label: 'Preço unitário', value: unitStr),
+                        const SizedBox(height: 8),
+                        _linhaResumo(icon: Icons.payments_rounded, label: 'Preço total', value: totalStr),
                       ],
                     ),
                   ),
@@ -397,12 +595,9 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
             }
 
             return AlertDialog(
-              titlePadding:
-                  const EdgeInsets.only(left: 20, right: 12, top: 16),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              actionsPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              titlePadding: const EdgeInsets.only(left: 20, right: 12, top: 16),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              actionsPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               title: Row(
                 children: [
                   Text(step == 0
@@ -443,17 +638,17 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
                         onPressed: () {
                           // validação simples por etapa
                           if (step == 0 && _produtoId == null) {
-                            _erro('Selecione um produto.');
+                            _dialogAviso(ok: false, title: 'Produto', message: 'Selecione um produto.');
                             return;
                           }
                           if (step == 1) {
                             final qtd = int.tryParse(_qtdCtrl.text.trim()) ?? 0;
                             if (qtd <= 0) {
-                              _erro('Quantidade inválida.');
+                              _dialogAviso(ok: false, title: 'Quantidade inválida', message: 'Informe uma quantidade maior que zero.');
                               return;
                             }
                             if (_validade == null) {
-                              _erro('Escolha a validade.');
+                              _dialogAviso(ok: false, title: 'Validade', message: 'Escolha a data de validade.');
                               return;
                             }
                           }
@@ -465,9 +660,7 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
                       ),
                     if (step == 2)
                       FilledButton.icon(
-                        onPressed: _salvando
-                            ? null
-                            : () => _salvar(dialogCtx: dialogCtx),
+                        onPressed: _salvando ? null : () => _salvar(dialogCtx: dialogCtx),
                         icon: _salvando
                             ? const SizedBox(
                                 width: 16,
@@ -475,8 +668,7 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
                                 child: CircularProgressIndicator(strokeWidth: 2),
                               )
                             : const Icon(Icons.check),
-                        label: Text(
-                            _salvando ? 'Salvando...' : 'Confirmar e salvar'),
+                        label: Text(_salvando ? 'Salvando...' : 'Confirmar e salvar'),
                         style: _bigPrimary,
                       ),
                   ],
@@ -490,23 +682,17 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
   }
 
   // linha visual do resumo (ícone + rótulo + valor grande)
-  Widget _linhaResumo(
-      {required IconData icon,
-      required String label,
-      required String value}) {
+  Widget _linhaResumo({required IconData icon, required String label, required String value}) {
     return Row(
       children: [
         Icon(icon, size: 22),
         const SizedBox(width: 10),
-        Text('$label: ',
-            style:
-                const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+        Text('$label: ', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
         Expanded(
           child: Text(
             value,
             textAlign: TextAlign.right,
-            style:
-                const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
           ),
         ),
       ],
@@ -539,8 +725,7 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
                   children: [
                     const Text(
                       'Adicionar um novo lote',
-                      style:
-                          TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
                     ),
                     const SizedBox(height: 12),
                     const Text(

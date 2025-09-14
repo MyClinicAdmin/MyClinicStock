@@ -1,11 +1,10 @@
 // lib/pages/admin_page.dart
-
 import 'package:flutter/material.dart';
 import 'package:kwalps_st/services/authz_service.dart';
 import 'package:kwalps_st/services/stock_service.dart';
 
 import 'fornecedores_admin_tab.dart';
-import 'produtos_admin_tab.dart'; // <-- nova aba
+import 'produtos_admin_tab.dart';
 
 class AdminPage extends StatefulWidget {
   const AdminPage({super.key});
@@ -14,7 +13,7 @@ class AdminPage extends StatefulWidget {
 }
 
 class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMixin {
-  // Agora com 4 abas
+  // 4 abas
   late final TabController _tab = TabController(length: 4, vsync: this);
 
   @override
@@ -22,6 +21,119 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
     _tab.dispose();
     super.dispose();
   }
+
+  // ===================== DIÁLOGOS BONITOS (Sucesso/Erro/Confirmação) =====================
+
+  Future<void> _showResultDialog({
+    required bool ok,
+    String? title,
+    required String message,
+  }) async {
+    final cs = Theme.of(context).colorScheme;
+    final icon = ok ? Icons.check_circle_rounded : Icons.error_outline_rounded;
+    final color = ok ? cs.primary : cs.error;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (_) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 56, color: color),
+              const SizedBox(height: 12),
+              Text(
+                title ?? (ok ? 'Sucesso' : 'Ocorreu um erro'),
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('OK'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<bool> _confirm({
+    required String title,
+    required String message,
+    IconData icon = Icons.help_outline_rounded,
+    Color? color,
+    String cancelText = 'Cancelar',
+    String confirmText = 'Confirmar',
+  }) async {
+    final cs = Theme.of(context).colorScheme;
+    final icColor = color ?? cs.primary;
+
+    final res = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (_) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 48, color: icColor),
+              const SizedBox(height: 12),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: Text(cancelText),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      child: Text(confirmText),
+                    ),
+                  ),
+                ],
+              )
+            ],
+          ),
+        ),
+      ),
+    );
+    return res == true;
+  }
+
+  // ======================================================================
 
   @override
   Widget build(BuildContext context) {
@@ -36,7 +148,7 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
             Tab(text: 'Autorizados'),
             Tab(text: 'Histórico'),
             Tab(text: 'Fornecedores'),
-            Tab(text: 'Produtos'), // <-- NOVO
+            Tab(text: 'Produtos'),
           ],
         ),
       ),
@@ -64,6 +176,7 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
                     if (!snap.hasData) return const Center(child: CircularProgressIndicator());
                     final list = snap.data!;
                     if (list.isEmpty) return const Center(child: Text('Nenhuma pessoa autorizada.'));
+
                     return ListView.separated(
                       padding: const EdgeInsets.all(12),
                       itemCount: list.length,
@@ -118,11 +231,51 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
                                 ),
                                 Switch(
                                   value: u.ativo,
-                                  onChanged: (v) => AuthzService().toggleActive(u.id, v),
+                                  onChanged: (v) async {
+                                    try {
+                                      await AuthzService().toggleActive(u.id, v);
+                                      await _showResultDialog(
+                                        ok: true,
+                                        title: 'Atualizado',
+                                        message: v ? 'Utilizador ativado.' : 'Utilizador desativado.',
+                                      );
+                                    } catch (e) {
+                                      await _showResultDialog(
+                                        ok: false,
+                                        title: 'Falha',
+                                        message: 'Não foi possível alterar o estado.\n$e',
+                                      );
+                                    }
+                                  },
                                 ),
                                 IconButton(
                                   tooltip: 'Eliminar',
-                                  onPressed: () async => await AuthzService().delete(u.id),
+                                  onPressed: () async {
+                                    final ok = await _confirm(
+                                      title: 'Eliminar autorizado',
+                                      message:
+                                          'Remover "${u.nome}"? Esta ação não pode ser desfeita.',
+                                      icon: Icons.delete_forever_rounded,
+                                      color: cs.error,
+                                      confirmText: 'Eliminar',
+                                    );
+                                    if (!ok) return;
+
+                                    try {
+                                      await AuthzService().delete(u.id);
+                                      await _showResultDialog(
+                                        ok: true,
+                                        title: 'Eliminado',
+                                        message: 'A pessoa "${u.nome}" foi removida com sucesso.',
+                                      );
+                                    } catch (e) {
+                                      await _showResultDialog(
+                                        ok: false,
+                                        title: 'Falha ao eliminar',
+                                        message: '$e',
+                                      );
+                                    }
+                                  },
                                   icon: const Icon(Icons.delete_outline),
                                 ),
                               ],
@@ -137,7 +290,7 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
             ],
           ),
 
-          // --------- Aba 2: Histórico (collectionGroup "movimentos") ---------
+          // --------- Aba 2: Histórico ---------
           StreamBuilder<List<Movimento>>(
             stream: StockService().streamMovimentos(limit: 300),
             builder: (context, snap) {
@@ -212,9 +365,11 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
           ),
 
           // --------- Aba 3: Fornecedores ---------
+          // ⚠️ No formulário de fornecedor, remova o campo "Contacto".
+          //    Use apenas: Nome, Email e Telefone.
           const FornecedoresAdminTab(),
 
-          // --------- Aba 4: Produtos (NOVA) ---------
+          // --------- Aba 4: Produtos ---------
           const ProdutosAdminTab(),
         ],
       ),
@@ -299,16 +454,28 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
     );
 
     if (ok == true) {
-      await AuthzService().addAuthorized(
-        nome: nome.text.trim(),
-        chave: chave.text.trim(),
-        role: role,
-        ativo: ativo,
-      );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Pessoa autorizada adicionada.')),
+      try {
+        await AuthzService().addAuthorized(
+          nome: nome.text.trim(),
+          chave: chave.text.trim(),
+          role: role,
+          ativo: ativo,
         );
+        if (mounted) {
+          await _showResultDialog(
+            ok: true,
+            title: 'Adicionado',
+            message: 'Pessoa autorizada adicionada com sucesso.',
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          await _showResultDialog(
+            ok: false,
+            title: 'Falha ao adicionar',
+            message: '$e',
+          );
+        }
       }
     }
   }
@@ -327,7 +494,12 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
       ),
     );
     if (ok == true) {
-      await AuthzService().updateAuthorized(id: u.id, novoNome: nome.text.trim());
+      try {
+        await AuthzService().updateAuthorized(id: u.id, novoNome: nome.text.trim());
+        await _showResultDialog(ok: true, title: 'Atualizado', message: 'Nome atualizado.');
+      } catch (e) {
+        await _showResultDialog(ok: false, title: 'Falha ao atualizar', message: '$e');
+      }
     }
   }
 
@@ -348,8 +520,18 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
         ],
       ),
     );
-    if (ok == true && chave.text.trim().length >= 4) {
-      await AuthzService().updateAuthorized(id: u.id, novaChave: chave.text.trim());
+    if (ok == true) {
+      final nova = chave.text.trim();
+      if (nova.length < 4) {
+        await _showResultDialog(ok: false, title: 'Inválido', message: 'A chave deve ter ao menos 4 caracteres.');
+        return;
+      }
+      try {
+        await AuthzService().updateAuthorized(id: u.id, novaChave: nova);
+        await _showResultDialog(ok: true, title: 'Chave redefinida', message: 'A nova chave foi aplicada.');
+      } catch (e) {
+        await _showResultDialog(ok: false, title: 'Falha ao redefinir', message: '$e');
+      }
     }
   }
 
@@ -374,7 +556,12 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
       ),
     );
     if (ok == true) {
-      await AuthzService().updateAuthorized(id: u.id, novoRole: role);
+      try {
+        await AuthzService().updateAuthorized(id: u.id, novoRole: role);
+        await _showResultDialog(ok: true, title: 'Função atualizada', message: 'As permissões foram alteradas.');
+      } catch (e) {
+        await _showResultDialog(ok: false, title: 'Falha ao atualizar função', message: '$e');
+      }
     }
   }
 
