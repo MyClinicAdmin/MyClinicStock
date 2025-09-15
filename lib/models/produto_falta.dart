@@ -17,8 +17,9 @@ class ProdutoFalta {
   static String _fmtDateAny(dynamic v) {
     if (v == null) return '-';
     DateTime? d;
-    if (v is Timestamp) d = v.toDate();
-    else if (v is DateTime) d = v;
+    if (v is Timestamp) {
+      d = v.toDate();
+    } else if (v is DateTime) d = v;
     if (d == null) return '-';
     return DateFormat('dd/MM/yyyy').format(d);
   }

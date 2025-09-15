@@ -153,7 +153,7 @@ class FornecedoresService {
     WriteBatch? batch;
     int ops = 0;
 
-    Future<void> _commit() async {
+    Future<void> commit() async {
       if (batch != null && ops > 0) {
         await batch!.commit();
         written += ops;
@@ -162,7 +162,7 @@ class FornecedoresService {
       ops = 0;
     }
 
-    await _commit();
+    await commit();
 
     for (final f in items) {
       final data = _baseMapFromModel(f);
@@ -178,11 +178,11 @@ class FornecedoresService {
       batch!.set(ref, data, SetOptions(merge: true));
       ops++;
       if (ops >= maxOps) {
-        await _commit();
+        await commit();
       }
     }
 
-    await _commit();
+    await commit();
     return written;
   }
 }

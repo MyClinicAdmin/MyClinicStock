@@ -109,13 +109,13 @@ class AppTheme {
         surfaceTintColor: Colors.transparent,
         // Algumas builds aceitam MaterialStateProperty, outras preferem fixo.
         // Se der erro aí também, troca por TextStyle(...) simples.
-        labelTextStyle: MaterialStateProperty.all(
+        labelTextStyle: WidgetStateProperty.all(
           TextStyle(
             color: base.colorScheme.onSurface,
             fontWeight: FontWeight.w600,
           ),
         ),
-        iconTheme: MaterialStateProperty.all(
+        iconTheme: WidgetStateProperty.all(
           IconThemeData(color: base.colorScheme.onSurface),
         ),
       ),

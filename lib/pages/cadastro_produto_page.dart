@@ -21,6 +21,10 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
   String? _produtoId;
   String? _produtoNome;
 
+  // Fornecedor (opcional)
+  String? _fornecedorId;
+  String? _fornecedorNome;
+
   final _qtdCtrl = TextEditingController(text: '1'); // editável
   final _validadeCtrl = TextEditingController();
   final _codigoCtrl = TextEditingController();
@@ -160,6 +164,8 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
     setState(() {
       _produtoId = null;
       _produtoNome = null;
+      _fornecedorId = null;
+      _fornecedorNome = null;
       _qtdCtrl.text = '1';
       _validade = null;
       _validadeCtrl.clear();
@@ -226,8 +232,18 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
         'criado_em': FieldValue.serverTimestamp(),
       };
 
-      if (precos.unit != null) loteData['preco_unitario'] = double.parse(precos.unit!.toStringAsFixed(2));
-      if (precos.total != null) loteData['preco_total'] = double.parse(precos.total!.toStringAsFixed(2));
+      // persistir fornecedor se selecionado
+      if (_fornecedorId != null && _fornecedorNome != null) {
+        loteData['fornecedor_id'] = _fornecedorId;
+        loteData['fornecedor_nome'] = _fornecedorNome;
+      }
+
+      if (precos.unit != null) {
+        loteData['preco_unitario'] = double.parse(precos.unit!.toStringAsFixed(2));
+      }
+      if (precos.total != null) {
+        loteData['preco_total'] = double.parse(precos.total!.toStringAsFixed(2));
+      }
 
       await refProd.collection('lotes').add(loteData);
 
@@ -267,7 +283,7 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
         return StatefulBuilder(
           builder: (ctx, setModalState) {
             // Helpers de UI internas ao modal
-            Widget _precoModoChips() {
+            Widget precoModoChips() {
               return Wrap(
                 spacing: 8,
                 runSpacing: 8,
@@ -288,7 +304,7 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
               );
             }
 
-            String _previewTotal() {
+            String previewTotal() {
               final qtd = int.tryParse(_qtdCtrl.text.trim()) ?? 0;
               final unit = _parseMoney(_precoUnitCtrl.text);
               final total = _parseMoney(_precoTotalCtrl.text);
@@ -302,13 +318,14 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
 
             Widget conteudo;
 
-            // ===== PASSO 1 — PRODUTO =====
+            // ===== PASSO 1 — PRODUTO + FORNECEDOR =====
             if (step == 0) {
               conteudo = Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _titulo('1. Selecionar produto'),
                   const SizedBox(height: 8),
+                  // Produtos
                   StreamBuilder<QuerySnapshot>(
                     stream: FirebaseFirestore.instance
                         .collection('produtos')
@@ -343,15 +360,17 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
                         );
                       }
 
+                      // Mapa id->nome para setar o _produtoNome corretamente
+                      final Map<String, String> map = {
+                        for (final d in docs)
+                          d.id: (((d.data() as Map<String, dynamic>? ?? {})['nome'] ?? '') as String).trim()
+                      };
+
                       final items = docs.map((d) {
-                        final data = d.data() as Map<String, dynamic>? ?? {};
-                        final nome = (data['nome'] ?? '').toString().trim();
+                        final nome = map[d.id] ?? '(sem nome)';
                         return DropdownMenuItem<String>(
                           value: d.id,
-                          child: Text(
-                            nome.isEmpty ? '(sem nome)' : nome,
-                            style: const TextStyle(fontSize: 16),
-                          ),
+                          child: Text(nome.isEmpty ? '(sem nome)' : nome, style: const TextStyle(fontSize: 16)),
                         );
                       }).toList();
 
@@ -361,19 +380,79 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
                         onChanged: (v) {
                           setModalState(() {
                             _produtoId = v;
-                            // atualiza também o nome visível
-                            final doc = docs.firstWhere(
-                              (d) => d.id == v,
-                              orElse: () => docs.first,
-                            );
-                            final data = doc.data() as Map<String, dynamic>? ?? {};
-                            _produtoNome = (data['nome'] ?? '').toString().trim();
+                            _produtoNome = v == null ? null : (map[v] ?? '');
                           });
                         },
                         decoration: _input(context, 'Produto (selecione)'),
-                        dropdownColor: cs.surface, // fundo do menu
+                        dropdownColor: cs.surface,
                         isExpanded: true,
                         validator: (v) => (v == null || v.isEmpty) ? 'Selecione um produto' : null,
+                        style: const TextStyle(fontSize: 16),
+                        menuMaxHeight: 400,
+                      );
+                    },
+                  ),
+
+                  const SizedBox(height: 14),
+                  _titulo('Fornecedor (opcional)'),
+                  const SizedBox(height: 8),
+
+                  // Fornecedores (select similar ao admin)
+                  StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance
+                        .collection('fornecedores')
+                        .orderBy('nome')
+                        .snapshots(),
+                    builder: (context, snap) {
+                      if (snap.hasError) {
+                        return ListTile(
+                          leading: const Icon(Icons.error_outline, color: Colors.red),
+                          title: const Text('Erro ao carregar fornecedores.'),
+                          trailing: IconButton(
+                            onPressed: () => setModalState(() {}),
+                            icon: const Icon(Icons.refresh),
+                          ),
+                        );
+                      }
+                      if (!snap.hasData) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 8),
+                          child: LinearProgressIndicator(),
+                        );
+                      }
+
+                      final docs = snap.data!.docs;
+                      final Map<String, String> map = {
+                        for (final d in docs)
+                          d.id: (((d.data() as Map<String, dynamic>? ?? {})['nome'] ?? '') as String).trim()
+                      };
+
+                      final items = <DropdownMenuItem<String?>>[
+                        const DropdownMenuItem<String?>(
+                          value: null,
+                          child: Text('(Sem fornecedor)'),
+                        ),
+                        ...docs.map((d) {
+                          final nome = map[d.id] ?? '(sem nome)';
+                          return DropdownMenuItem<String?>(
+                            value: d.id,
+                            child: Text(nome.isEmpty ? '(sem nome)' : nome),
+                          );
+                        }),
+                      ];
+
+                      return DropdownButtonFormField<String?>(
+                        value: _fornecedorId,
+                        items: items,
+                        onChanged: (v) {
+                          setModalState(() {
+                            _fornecedorId = v;
+                            _fornecedorNome = v == null ? null : (map[v] ?? '');
+                          });
+                        },
+                        decoration: _input(context, 'Fornecedor'),
+                        dropdownColor: cs.surface,
+                        isExpanded: true,
                         style: const TextStyle(fontSize: 16),
                         menuMaxHeight: 400,
                       );
@@ -474,7 +553,7 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
                   // Modo de preço
                   Text('Preço', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800)),
                   const SizedBox(height: 8),
-                  _precoModoChips(),
+                  precoModoChips(),
                   const SizedBox(height: 10),
 
                   if (_precoModo == _PrecoModo.unidade) ...[
@@ -500,7 +579,7 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: TextFormField(
-                            controller: TextEditingController(text: _previewTotal()),
+                            controller: TextEditingController(text: previewTotal()),
                             readOnly: true,
                             decoration: _input(context, 'Total (auto)'),
                           ),
@@ -580,6 +659,10 @@ class _CadastroProdutoPageState extends State<CadastroProdutoPage> {
                         if (_codigoCtrl.text.trim().isNotEmpty) ...[
                           const SizedBox(height: 8),
                           _linhaResumo(icon: Icons.qr_code_2, label: 'Código', value: _codigoCtrl.text.trim()),
+                        ],
+                        if (_fornecedorNome != null && _fornecedorNome!.trim().isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          _linhaResumo(icon: Icons.factory_rounded, label: 'Fornecedor', value: _fornecedorNome!),
                         ],
                         const SizedBox(height: 10),
                         const Divider(),

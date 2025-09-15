@@ -1,6 +1,6 @@
+// lib/pages/produtos_em_falta_page.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:kwalps_st/services/stock_service.dart';
 import 'package:kwalps_st/services/authz_service.dart';
 import 'package:kwalps_st/services/session_service.dart';
 
@@ -29,7 +29,7 @@ class _ProdutosEmFaltaPageState extends State<ProdutosEmFaltaPage> {
 
   // Próxima validade entre lotes (fallback: validade do produto)
   Future<String> _proximaValidade(String produtoId, dynamic fallbackTs) async {
-    String _fmt(DateTime d) {
+    String fmt(DateTime d) {
       final y = d.year.toString().padLeft(4, '0');
       final m = d.month.toString().padLeft(2, '0');
       final d2 = d.day.toString().padLeft(2, '0');
@@ -39,7 +39,7 @@ class _ProdutosEmFaltaPageState extends State<ProdutosEmFaltaPage> {
     String fallbackStr() {
       try {
         final date = (fallbackTs as dynamic).toDate?.call();
-        if (date is DateTime) return _fmt(date);
+        if (date is DateTime) return fmt(date);
       } catch (_) {}
       return '-';
     }
@@ -60,12 +60,12 @@ class _ProdutosEmFaltaPageState extends State<ProdutosEmFaltaPage> {
           try {
             final dt = (v as dynamic).toDate?.call();
             if (dt is DateTime) {
-              if (earliest == null || dt.isBefore(earliest!)) earliest = dt;
+              if (earliest == null || dt.isBefore(earliest)) earliest = dt;
             }
           } catch (_) {}
         }
       }
-      return earliest == null ? fallbackStr() : _fmt(earliest!);
+      return earliest == null ? fallbackStr() : fmt(earliest);
     } catch (_) {
       return fallbackStr();
     }
@@ -278,80 +278,39 @@ class _ProdutosEmFaltaPageState extends State<ProdutosEmFaltaPage> {
 
                           const SizedBox(height: 10),
 
-                          // Ações (com RESOLVER destacado)
+                          // Ações (somente Resolver/Reabrir)
                           Row(
                             children: [
-                              // SAÍDA – qualquer autorizado
-                              IconButton.filledTonal(
-                                tooltip: 'Saída (consumo)',
-                                icon: const Icon(Icons.remove_rounded),
-                                onPressed: () async {
-                                  final qty = await _askQtd(context, title: 'Registrar SAÍDA');
-                                  if (qty == null) return;
-
-                                  final operador = await _ensureSession(context);
-                                  if (operador == null) return;
-
-                                  try {
-                                    await StockService().registrarSaida(
-                                      produtoId: produtoId,
-                                      quantidade: qty,
-                                      motivo: 'consumo',
-                                      operador: operador,
-                                    );
-                                    if (mounted) _ok('Saída registada.');
-                                  } catch (e) {
-                                    if (mounted) _err('Erro: $e');
-                                  }
-                                },
-                              ),
-                              const SizedBox(width: 6),
-
-                              // ENTRADA – qualquer autorizado
-                              IconButton.filledTonal(
-                                tooltip: 'Entrada (reposição)',
-                                icon: const Icon(Icons.add_rounded),
-                                onPressed: () async {
-                                  final qty = await _askQtd(context, title: 'Registrar ENTRADA');
-                                  if (qty == null) return;
-
-                                  final operador = await _ensureSession(context);
-                                  if (operador == null) return;
-
-                                  try {
-                                    await StockService().registrarEntrada(
-                                      produtoId: produtoId,
-                                      quantidade: qty,
-                                      motivo: 'compra',
-                                      operador: operador,
-                                    );
-                                    if (mounted) _ok('Entrada registada.');
-                                  } catch (e) {
-                                    if (mounted) _err('Erro: $e');
-                                  }
-                                },
-                              ),
-                              const Spacer(),
-
-                              // RESOLVER (destacado) / REABRIR
                               if (!resolvido)
                                 FilledButton.icon(
                                   icon: const Icon(Icons.check_circle_rounded),
                                   label: const Text('RESOLVER', style: TextStyle(fontWeight: FontWeight.w900)),
                                   style: FilledButton.styleFrom(
-                                    backgroundColor: const Color(0xFF2962FF), // azul forte para destacar
+                                    backgroundColor: const Color(0xFF2962FF),
                                     foregroundColor: Colors.white,
                                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                                   ),
                                   onPressed: () async {
-                                    final nome = await _ensureSession(context);
-                                    if (nome == null) return;
+                                    final operador = await _ensureSession(context);
+                                    if (operador == null) return;
                                     try {
+                                      // 1) marca produto como resolvido
                                       await d.reference.update({
                                         'falta_resolvido': true,
                                         'falta_resolvido_at': FieldValue.serverTimestamp(),
-                                        'falta_resolvido_by': nome,
+                                        'falta_resolvido_by': operador,
                                       });
+
+                                      // 2) marca TODOS os lotes como resolvidos (origem: falta)
+                                      final lotes = await d.reference.collection('lotes').get();
+                                      for (final ld in lotes.docs) {
+                                        await ld.reference.update({
+                                          'resolvido': true,
+                                          'resolvido_origem': 'falta',
+                                          'atualizado_em': FieldValue.serverTimestamp(),
+                                        });
+                                      }
+
                                       if (mounted) _ok('Marcado como resolvido.');
                                     } catch (e) {
                                       if (mounted) _err('Erro ao resolver: $e');
@@ -366,20 +325,38 @@ class _ProdutosEmFaltaPageState extends State<ProdutosEmFaltaPage> {
                                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                                   ),
                                   onPressed: () async {
-                                    final nome = await _ensureSession(context);
-                                    if (nome == null) return;
+                                    final operador = await _ensureSession(context);
+                                    if (operador == null) return;
                                     try {
+                                      // 1) desfaz resolvido do produto
                                       await d.reference.update({
                                         'falta_resolvido': false,
                                         'falta_resolvido_at': null,
                                         'falta_resolvido_by': null,
                                       });
+
+                                      // 2) reabre lotes que foram resolvidos por "falta" (mantém outros)
+                                      final lotes = await d.reference.collection('lotes').get();
+                                      for (final ld in lotes.docs) {
+                                        final ldata = ld.data();
+                                        final foiPorFalta = (ldata['resolvido_origem'] ?? '') == 'falta';
+                                        final estaResolvido = (ldata['resolvido'] ?? false) == true;
+                                        if (estaResolvido && foiPorFalta) {
+                                          await ld.reference.update({
+                                            'resolvido': false,
+                                            'resolvido_origem': null,
+                                            'atualizado_em': FieldValue.serverTimestamp(),
+                                          });
+                                        }
+                                      }
+
                                       if (mounted) _ok('Item reaberto.');
                                     } catch (e) {
                                       if (mounted) _err('Erro: $e');
                                     }
                                   },
                                 ),
+                              const Spacer(),
                             ],
                           ),
                         ],
@@ -451,40 +428,6 @@ class _ProdutosEmFaltaPageState extends State<ProdutosEmFaltaPage> {
   }
 
   // ---------- diálogos & sessão
-  Future<int?> _askQtd(BuildContext context, {required String title}) async {
-    final ctrl = TextEditingController();
-    final form = GlobalKey<FormState>();
-    return showDialog<int>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Text(title),
-        content: Form(
-          key: form,
-          child: TextFormField(
-            controller: ctrl,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: 'Quantidade'),
-            validator: (v) {
-              final n = int.tryParse((v ?? '').trim());
-              if (n == null || n <= 0) return 'Informe uma quantidade válida';
-              return null;
-            },
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
-          FilledButton(
-            onPressed: () {
-              if (!form.currentState!.validate()) return;
-              Navigator.pop(context, int.parse(ctrl.text.trim()));
-            },
-            child: const Text('Confirmar'),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<(String, String)?> _askCredenciais(
     BuildContext context, {
     String titulo = 'Autenticar',
