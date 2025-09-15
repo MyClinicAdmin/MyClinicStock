@@ -1,7 +1,7 @@
 // lib/pages/admin_page.dart
 import 'package:flutter/material.dart';
 import 'package:kwalps_st/services/authz_service.dart';
-import 'package:kwalps_st/services/stock_service.dart';
+import 'package:kwalps_st/services/stock_service.dart' as stock;
 
 import 'fornecedores_admin_tab.dart';
 import 'produtos_admin_tab.dart';
@@ -253,8 +253,7 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
                                   onPressed: () async {
                                     final ok = await _confirm(
                                       title: 'Eliminar autorizado',
-                                      message:
-                                          'Remover "${u.nome}"? Esta ação não pode ser desfeita.',
+                                      message: 'Remover "${u.nome}"? Esta ação não pode ser desfeita.',
                                       icon: Icons.delete_forever_rounded,
                                       color: cs.error,
                                       confirmText: 'Eliminar',
@@ -291,8 +290,8 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
           ),
 
           // --------- Aba 2: Histórico ---------
-          StreamBuilder<List<Movimento>>(
-            stream: StockService().streamMovimentos(limit: 300),
+          StreamBuilder<List<stock.Movimento>>(
+            stream: stock.StockService().streamMovimentos(limit: 300),
             builder: (context, snap) {
               if (snap.hasError) {
                 return Center(

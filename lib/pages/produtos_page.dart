@@ -2,8 +2,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+
 import 'package:kwalps_st/services/authz_service.dart';
 import 'package:kwalps_st/services/session_service.dart';
+import 'package:kwalps_st/services/stock_service.dart'; // <-- (novo)
 import 'package:kwalps_st/pages/enviar_email_page.dart';
 
 class ProdutosPage extends StatefulWidget {
@@ -218,9 +220,10 @@ class _ProdutosPageState extends State<ProdutosPage> {
                   final nome = (data['nome'] ?? '').toString();
                   final categoria = (data['categoria'] ?? '').toString();
 
-                  final qtdTotal = (data['quantidade_total'] ?? data['quantidade'] ?? 0) as int;
-                  final minimo = (data['estoque_minimo'] ?? 0) as int;
-                  final critico = qtdTotal > 0 ? (qtdTotal <= minimo) : false;
+                  // Casts seguros
+                  final qtdTotal = ((data['quantidade_total'] ?? data['quantidade']) as num?)?.toInt() ?? 0;
+                  final minimo   = (data['estoque_minimo'] as num?)?.toInt() ?? 0;
+                  final critico  = qtdTotal > 0 ? (qtdTotal <= minimo) : false;
                   final validadeProduto = _tsToString(data['validade']);
 
                   final estado = _estadoEstoque(qtdTotal, minimo, critico);
@@ -278,8 +281,9 @@ class _ProdutosPageState extends State<ProdutosPage> {
       if (validade == null) return qtd > 0;
       final today = DateTime.now();
       final v = DateTime(validade.year, validade.month, validade.day);
-      final notExpired = v.isAfter(DateTime(today.year, today.month, today.day));
-      return (qtd > 0) && notExpired;
+      final today0 = DateTime(today.year, today.month, today.day);
+      final notExpired = !v.isBefore(today0); // hoje conta como válido
+      return qtd > 0 && notExpired;
     }
 
     DateTime inatividadeEm(Map<String, dynamic> lote, DateTime? validade, bool ativo) {
@@ -360,7 +364,8 @@ class _ProdutosPageState extends State<ProdutosPage> {
                       final mapped = docs.map((d) {
                         final lote = d.data();
                         final codigo = (lote['codigo'] ?? '').toString().trim();
-                        final qtd = (lote['quantidade'] ?? 0) as int? ?? 0;
+                        final qtd = (lote['quantidade'] as num?)?.toInt() ?? 0;
+
                         final ts = lote['validade'];
                         DateTime? validade;
                         try {
@@ -379,6 +384,7 @@ class _ProdutosPageState extends State<ProdutosPage> {
                         final precoTotal = (lote['preco_total'] is num) ? (lote['preco_total'] as num).toDouble() : null;
 
                         final fornecedorNome = (lote['fornecedor_nome'] ?? '').toString().trim();
+                        final fornecedorId = (lote['fornecedor_id'] ?? '').toString().trim();
 
                         return (
                           ref: d.reference,
@@ -390,7 +396,8 @@ class _ProdutosPageState extends State<ProdutosPage> {
                           inativadoEm: inativado,
                           precoUnit: precoUnit,
                           precoTotal: precoTotal,
-                          fornecedor: fornecedorNome.isEmpty ? '—' : fornecedorNome
+                          fornecedor: fornecedorNome.isEmpty ? '—' : fornecedorNome,
+                          fornecedorId: fornecedorId.isEmpty ? null : fornecedorId
                         );
                       }).toList();
 
@@ -458,11 +465,14 @@ class _ProdutosPageState extends State<ProdutosPage> {
                                   }
 
                                   try {
-                                    await l.ref.update({
-                                      'quantidade': FieldValue.increment(-q),
-                                      'atualizado_em': FieldValue.serverTimestamp(),
-                                    });
-                                    await l.ref.parent.parent!.update({'quantidade_total': FieldValue.increment(-q)});
+                                    await StockService().registrarSaida(
+                                      produtoId: produtoId,
+                                      quantidade: q,
+                                      motivo: 'consumo',
+                                      operador: SessionService().adminName ?? SessionService().operatorName ?? 'operador',
+                                      loteId: l.ref.id,
+                                      custoUnitSaida: l.precoUnit, // pode ser null
+                                    );
                                     if (mounted) _ok('Saída registada.');
                                   } catch (e) {
                                     if (mounted) _err('Erro ao registar saída: $e');
@@ -486,11 +496,17 @@ class _ProdutosPageState extends State<ProdutosPage> {
                                   }
 
                                   try {
-                                    await l.ref.update({
-                                      'quantidade': FieldValue.increment(q),
-                                      'atualizado_em': FieldValue.serverTimestamp(),
-                                    });
-                                    await l.ref.parent.parent!.update({'quantidade_total': FieldValue.increment(q)});
+                                    await StockService().registrarEntrada(
+                                      produtoId: produtoId,
+                                      quantidade: q,
+                                      motivo: 'compra',
+                                      operador: SessionService().adminName ?? SessionService().operatorName ?? 'admin',
+                                      loteId: l.ref.id,
+                                      precoUnit: l.precoUnit,
+                                      precoTotal: null,
+                                      fornecedorId: l.fornecedorId,
+                                      fornecedorNome: (l.fornecedor == '—') ? null : l.fornecedor,
+                                    );
                                     if (mounted) _ok('Entrada registada.');
                                   } catch (e) {
                                     if (mounted) _err('Erro ao registar entrada: $e');

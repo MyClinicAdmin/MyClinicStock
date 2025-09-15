@@ -1,5 +1,6 @@
 // lib/services/stock_service.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'financeiro_service.dart';
 
 class Movimento {
   final String id;
@@ -22,59 +23,63 @@ class Movimento {
     this.criadoEm,
   });
 
-  // Quando vier de collectionGroup (QueryDocumentSnapshot)
-  factory Movimento.fromQueryDoc(QueryDocumentSnapshot<Map<String, dynamic>> d) {
+  factory Movimento.fromQueryDoc(
+    QueryDocumentSnapshot<Map<String, dynamic>> d,
+  ) {
     final data = d.data();
     return Movimento(
       id: d.id,
       produtoId: (data['produto_id'] ?? '').toString(),
       produtoNome: (data['produto_nome'] ?? '').toString(),
       tipo: (data['tipo'] ?? '').toString(),
-      quantidade: (data['quantidade'] ?? 0) as int,
-      motivo: (data['motivo'] ?? '').toString().isEmpty ? null : (data['motivo'] ?? '').toString(),
-      operador: (data['operador'] ?? '').toString().isEmpty ? null : (data['operador'] ?? '').toString(),
-      criadoEm: (data['criado_em'] as Timestamp?)?.toDate(),
-    );
-  }
-
-  // Versão alternativa caso você use DocumentSnapshot em algum lugar
-  factory Movimento.fromDoc(DocumentSnapshot<Map<String, dynamic>> d) {
-    final data = d.data() ?? <String, dynamic>{};
-    return Movimento(
-      id: d.id,
-      produtoId: (data['produto_id'] ?? '').toString(),
-      produtoNome: (data['produto_nome'] ?? '').toString(),
-      tipo: (data['tipo'] ?? '').toString(),
-      quantidade: (data['quantidade'] ?? 0) as int,
-      motivo: (data['motivo'] ?? '').toString().isEmpty ? null : (data['motivo'] ?? '').toString(),
-      operador: (data['operador'] ?? '').toString().isEmpty ? null : (data['operidor'] ?? '').toString(),
+      quantidade: (data['quantidade'] as num?)?.toInt() ?? 0,
+      motivo: ((data['motivo'] ?? '').toString().isEmpty)
+          ? null
+          : (data['motivo'] ?? '').toString(),
+      operador: ((data['operador'] ?? '').toString().isEmpty)
+          ? null
+          : (data['operador'] ?? '').toString(),
       criadoEm: (data['criado_em'] as Timestamp?)?.toDate(),
     );
   }
 }
 
 class StockService {
+  final _db = FirebaseFirestore.instance;
   final _prodCol = FirebaseFirestore.instance.collection('produtos');
+  final FinanceiroService _finService;
+
+  StockService({FinanceiroService? financeiroService})
+      : _finService = financeiroService ?? FinanceiroService();
 
   Future<void> registrarSaida({
     required String produtoId,
     required int quantidade,
     String motivo = 'consumo',
-    String? operador,
+    String? operador,       // opcional
+    String? loteId,
+    double? custoUnitSaida, // opcional
   }) async {
     final ref = _prodCol.doc(produtoId);
-    await FirebaseFirestore.instance.runTransaction((tx) async {
+
+    await _db.runTransaction((tx) async {
       final snap = await tx.get(ref);
       if (!snap.exists) throw Exception('Produto não encontrado');
       final data = snap.data() as Map<String, dynamic>;
-      final atual = (data['quantidade'] ?? 0) as int;
-      final minimo = (data['estoque_minimo'] ?? 0) as int;
+
+      final atual =
+          ((data['quantidade_total'] ?? data['quantidade']) as num?)?.toInt() ??
+              0;
+      final minimo = (data['estoque_minimo'] as num?)?.toInt() ?? 0;
+
       if (quantidade <= 0) throw Exception('Quantidade inválida');
       if (atual - quantidade < 0) throw Exception('Stock insuficiente');
 
       final novo = atual - quantidade;
+
       tx.update(ref, {
-        'quantidade': novo,
+        'quantidade_total': novo,
+        'quantidade': novo, // mantém compatibilidade
         'critico': novo <= minimo,
         'atualizado_em': FieldValue.serverTimestamp(),
       });
@@ -90,26 +95,50 @@ class StockService {
         'criado_em': FieldValue.serverTimestamp(),
       });
     });
+
+    // Log financeiro (fora da transação)
+    await _finService.logMovimento(
+      tipo: 'saida',
+      produtoId: produtoId,
+      produtoNome: await _nomeProduto(produtoId),
+      loteId: loteId,
+      quantidade: quantidade,
+      custoUnitSaida: custoUnitSaida,
+      operador: operador,
+      extra: {'motivo': motivo},
+    );
   }
 
   Future<void> registrarEntrada({
     required String produtoId,
     required int quantidade,
     String motivo = 'compra',
-    String? operador,
+    String? operador,       // opcional
+    String? loteId,
+    double? precoUnit,      // opcional
+    double? precoTotal,     // opcional
+    String? fornecedorId,   // opcional
+    String? fornecedorNome, // opcional
   }) async {
     final ref = _prodCol.doc(produtoId);
-    await FirebaseFirestore.instance.runTransaction((tx) async {
+
+    await _db.runTransaction((tx) async {
       final snap = await tx.get(ref);
       if (!snap.exists) throw Exception('Produto não encontrado');
       final data = snap.data() as Map<String, dynamic>;
-      final atual = (data['quantidade'] ?? 0) as int;
-      final minimo = (data['estoque_minimo'] ?? 0) as int;
+
+      final atual =
+          ((data['quantidade_total'] ?? data['quantidade']) as num?)?.toInt() ??
+              0;
+      final minimo = (data['estoque_minimo'] as num?)?.toInt() ?? 0;
+
       if (quantidade <= 0) throw Exception('Quantidade inválida');
 
       final novo = atual + quantidade;
+
       tx.update(ref, {
-        'quantidade': novo,
+        'quantidade_total': novo,
+        'quantidade': novo, // mantém compatibilidade
         'critico': novo <= minimo,
         'atualizado_em': FieldValue.serverTimestamp(),
       });
@@ -125,24 +154,42 @@ class StockService {
         'criado_em': FieldValue.serverTimestamp(),
       });
     });
+
+    // Log financeiro
+    await _finService.logMovimento(
+      tipo: 'entrada',
+      produtoId: produtoId,
+      produtoNome: await _nomeProduto(produtoId),
+      loteId: loteId,
+      quantidade: quantidade,
+      precoUnit: precoUnit,
+      precoTotal: precoTotal,
+      fornecedorId: fornecedorId,
+      fornecedorNome: fornecedorNome,
+      operador: operador,
+      extra: {'motivo': motivo},
+    );
   }
 
   Future<void> ajustarEstoque({
     required String produtoId,
     required int novoValor,
     String motivo = 'ajuste',
-    String? operador,
+    String? operador, // opcional
   }) async {
     final ref = _prodCol.doc(produtoId);
-    await FirebaseFirestore.instance.runTransaction((tx) async {
+
+    await _db.runTransaction((tx) async {
       final snap = await tx.get(ref);
       if (!snap.exists) throw Exception('Produto não encontrado');
       final data = snap.data() as Map<String, dynamic>;
-      final minimo = (data['estoque_minimo'] ?? 0) as int;
+
+      final minimo = (data['estoque_minimo'] as num?)?.toInt() ?? 0;
       if (novoValor < 0) throw Exception('Valor inválido');
 
       tx.update(ref, {
-        'quantidade': novoValor,
+        'quantidade_total': novoValor,
+        'quantidade': novoValor, // mantém compatibilidade
         'critico': novoValor <= minimo,
         'atualizado_em': FieldValue.serverTimestamp(),
       });
@@ -158,11 +205,12 @@ class StockService {
         'criado_em': FieldValue.serverTimestamp(),
       });
     });
+
+    // Se quiser, podemos logar o ajuste no financeiro com uma regra de custo.
   }
 
-  /// Histórico global (Admin)
   Stream<List<Movimento>> streamMovimentos({int limit = 300}) {
-    return FirebaseFirestore.instance
+    return _db
         .collectionGroup('movimentos')
         .orderBy('criado_em', descending: true)
         .limit(limit)
@@ -170,8 +218,10 @@ class StockService {
         .map((q) => q.docs.map(Movimento.fromQueryDoc).toList());
   }
 
-  /// Histórico por produto específico (útil se precisar)
-  Stream<List<Movimento>> streamMovimentosDoProduto(String produtoId, {int limit = 200}) {
+  Stream<List<Movimento>> streamMovimentosDoProduto(
+    String produtoId, {
+    int limit = 200,
+  }) {
     return _prodCol
         .doc(produtoId)
         .collection('movimentos')
@@ -179,5 +229,10 @@ class StockService {
         .limit(limit)
         .snapshots()
         .map((q) => q.docs.map(Movimento.fromQueryDoc).toList());
+  }
+
+  Future<String> _nomeProduto(String produtoId) async {
+    final doc = await _db.collection('produtos').doc(produtoId).get();
+    return (doc.data()?['nome'] ?? '—').toString();
   }
 }

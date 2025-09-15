@@ -8,6 +8,9 @@ import 'package:kwalps_st/pages/admin_page.dart';
 import 'package:kwalps_st/services/authz_service.dart';
 import 'package:kwalps_st/services/session_service.dart';
 
+// NEW: importe a página do Financeiro (stub abaixo)
+import 'package:kwalps_st/pages/financeiro_page.dart';
+
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -36,7 +39,7 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  // Destinos
+  // Destinos (lista completa)
   late final List<_Dest> _destinations = [
     _Dest(
       label: 'Em Falta',
@@ -59,13 +62,21 @@ class _HomePageState extends State<HomePage> {
       selectedIcon: Icons.inventory_2_rounded,
       builder: (_) => const ProdutosPage(),
     ),
-    // ✅ Somente no menu, sem FAB fixo
+
+    // NEW: Financeiro (só aparece quando _adminAuthed == true; ver filtro no build)
     _Dest(
-      label: 'Adicionar Lotes', // ou "Cadastrar Lotes" se preferir
+      label: 'Financeiro',
+      tooltip: 'Painel financeiro (admin)',
+      icon: Icons.trending_up_rounded,
+      selectedIcon: Icons.trending_up,
+      builder: (_) => const FinanceiroPage(),
+    ),
+
+    _Dest(
+      label: 'Adicionar Lotes',
       tooltip: 'Registrar/Adicionar lotes',
       icon: Icons.playlist_add_outlined,
       selectedIcon: Icons.playlist_add,
-      // Por enquanto leva para a mesma page; depois podemos trocar por uma page específica de lotes
       builder: (_) => const CadastroProdutoPage(),
     ),
     _Dest(
@@ -86,9 +97,16 @@ class _HomePageState extends State<HomePage> {
     ),
   ];
 
+  // NEW: filtra a lista para esconder “Financeiro” se não for admin
+  List<_Dest> _visibleDestinations() {
+    return _destinations
+        .where((d) => d.label != 'Financeiro' || _adminAuthed)
+        .toList();
+  }
+
   void _onSelect(int i) => setState(() => _index = i);
 
-  // ---- Login Admin (apenas quem tem is_admin=true)
+  // ---- Login Admin
   Future<void> _openAdminLoginSheet() async {
     final nomeCtrl = TextEditingController();
     final chaveCtrl = TextEditingController();
@@ -222,7 +240,9 @@ class _HomePageState extends State<HomePage> {
     );
 
     if (ok == true) {
-      final adminIdx = _destinations.indexWhere((d) => d.label == 'Admin');
+      // Após login, leve para "Admin" (mantido como estava)
+      final visible = _visibleDestinations();
+      final adminIdx = visible.indexWhere((d) => d.label == 'Admin');
       if (adminIdx != -1) setState(() => _index = adminIdx);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -234,10 +254,11 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _logoutAdmin() async {
     await SessionService().clearAdminOverride();
-    await SessionService().clearOperator(); // limpa sessão de operador (10min)
+    await SessionService().clearOperator();
     setState(() {
       _adminAuthed = false;
       _adminUser = null;
+      _index = 0; // volta para a primeira aba visível
     });
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -248,7 +269,9 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final currentPage = _destinations[_index].builder(context);
+    final visible = _visibleDestinations();                       // NEW
+    final safeIndex = _index.clamp(0, visible.length - 1);        // NEW
+    final currentPage = visible[safeIndex].builder(context);      // NEW
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -257,15 +280,14 @@ class _HomePageState extends State<HomePage> {
         if (isWide) {
           // Desktop/Web
           return Scaffold(
-            // ✅ FAB removido — só navegação
             body: Row(
               children: [
                 _SideRail(
-                  index: _index,
+                  index: safeIndex,                                   // NEW
                   onSelect: _onSelect,
-                  destinations: _destinations,
+                  destinations: visible,                              // NEW
                   onLogoutTap:
-                      (_destinations[_index].label == 'Admin' && _adminAuthed)
+                      (visible[safeIndex].label == 'Admin' && _adminAuthed) // NEW
                           ? _logoutAdmin
                           : null,
                   adminUser: _adminUser,
@@ -279,11 +301,10 @@ class _HomePageState extends State<HomePage> {
         // Mobile/Tablet
         return Scaffold(
           body: currentPage,
-          // ✅ Sem FAB — ação via menu
           bottomNavigationBar: NavigationBar(
-            selectedIndex: _index,
+            selectedIndex: safeIndex,                                 // NEW
             onDestinationSelected: _onSelect,
-            destinations: _destinations
+            destinations: visible
                 .map(
                   (d) => NavigationDestination(
                     icon: Icon(d.icon),
@@ -325,7 +346,6 @@ class _SideRail extends StatelessWidget {
   final String? adminUser;
 
   const _SideRail({
-    super.key,
     required this.index,
     required this.onSelect,
     required this.destinations,
