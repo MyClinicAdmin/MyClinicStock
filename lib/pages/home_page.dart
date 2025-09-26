@@ -7,9 +7,10 @@ import 'package:kwalps_st/pages/produtos_page.dart';
 import 'package:kwalps_st/pages/admin_page.dart';
 import 'package:kwalps_st/services/authz_service.dart';
 import 'package:kwalps_st/services/session_service.dart';
-
-// NEW: importe a página do Financeiro (stub abaixo)
+// NEW
 import 'package:kwalps_st/pages/financeiro_page.dart';
+// NEW — helper do logo/nome
+import 'package:kwalps_st/branding.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -62,8 +63,6 @@ class _HomePageState extends State<HomePage> {
       selectedIcon: Icons.inventory_2_rounded,
       builder: (_) => const ProdutosPage(),
     ),
-
-    // NEW: Financeiro (só aparece quando _adminAuthed == true; ver filtro no build)
     _Dest(
       label: 'Financeiro',
       tooltip: 'Painel financeiro (admin)',
@@ -71,7 +70,6 @@ class _HomePageState extends State<HomePage> {
       selectedIcon: Icons.trending_up,
       builder: (_) => const FinanceiroPage(),
     ),
-
     _Dest(
       label: 'Adicionar Lotes',
       tooltip: 'Registrar/Adicionar lotes',
@@ -97,7 +95,7 @@ class _HomePageState extends State<HomePage> {
     ),
   ];
 
-  // NEW: filtra a lista para esconder “Financeiro” se não for admin
+  // filtra para esconder “Financeiro” se não for admin
   List<_Dest> _visibleDestinations() {
     return _destinations
         .where((d) => d.label != 'Financeiro' || _adminAuthed)
@@ -240,7 +238,6 @@ class _HomePageState extends State<HomePage> {
     );
 
     if (ok == true) {
-      // Após login, leve para "Admin" (mantido como estava)
       final visible = _visibleDestinations();
       final adminIdx = visible.indexWhere((d) => d.label == 'Admin');
       if (adminIdx != -1) setState(() => _index = adminIdx);
@@ -258,7 +255,7 @@ class _HomePageState extends State<HomePage> {
     setState(() {
       _adminAuthed = false;
       _adminUser = null;
-      _index = 0; // volta para a primeira aba visível
+      _index = 0;
     });
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -269,9 +266,9 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final visible = _visibleDestinations();                       // NEW
-    final safeIndex = _index.clamp(0, visible.length - 1);        // NEW
-    final currentPage = visible[safeIndex].builder(context);      // NEW
+    final visible = _visibleDestinations();
+    final safeIndex = _index.clamp(0, visible.length - 1);
+    final currentPage = visible[safeIndex].builder(context);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -283,11 +280,11 @@ class _HomePageState extends State<HomePage> {
             body: Row(
               children: [
                 _SideRail(
-                  index: safeIndex,                                   // NEW
+                  index: safeIndex,
                   onSelect: _onSelect,
-                  destinations: visible,                              // NEW
+                  destinations: visible,
                   onLogoutTap:
-                      (visible[safeIndex].label == 'Admin' && _adminAuthed) // NEW
+                      (visible[safeIndex].label == 'Admin' && _adminAuthed)
                           ? _logoutAdmin
                           : null,
                   adminUser: _adminUser,
@@ -302,7 +299,7 @@ class _HomePageState extends State<HomePage> {
         return Scaffold(
           body: currentPage,
           bottomNavigationBar: NavigationBar(
-            selectedIndex: safeIndex,                                 // NEW
+            selectedIndex: safeIndex,
             onDestinationSelected: _onSelect,
             destinations: visible
                 .map(
@@ -364,22 +361,22 @@ class _SideRail extends StatelessWidget {
       groupAlignment: -0.8,
       minExtendedWidth: 240,
       backgroundColor: Colors.transparent,
+
+      // ====== ALTERADO: só o logo grande ======
       leading: Padding(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-        child: Row(
-          children: [
-            Icon(Icons.local_hospital_rounded, color: cs.primary),
-            const SizedBox(width: 8),
-            Text(
-              'Kwalps_st',
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w700, color: cs.onSurface),
-            ),
-          ],
+        child: Center(
+          child: Image.asset(
+            Brand.logo,
+            width: 160, // aumenta ou diminui aqui
+            fit: BoxFit.contain,
+            filterQuality: FilterQuality.high,
+            semanticLabel: 'MY STOCK',
+          ),
         ),
       ),
+      // ========================================
+
       trailing: onLogoutTap == null
           ? null
           : Padding(

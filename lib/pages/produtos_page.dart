@@ -5,7 +5,6 @@ import 'package:intl/intl.dart';
 
 import 'package:kwalps_st/services/authz_service.dart';
 import 'package:kwalps_st/services/session_service.dart';
-import 'package:kwalps_st/services/stock_service.dart'; // <-- (novo)
 import 'package:kwalps_st/pages/enviar_email_page.dart';
 
 class ProdutosPage extends StatefulWidget {
@@ -17,21 +16,19 @@ class ProdutosPage extends StatefulWidget {
 class _ProdutosPageState extends State<ProdutosPage> {
   String _search = '';
 
-  // ===================== TOASTS (azul/branco) =====================
+  // ===================== TOASTS =====================
   void _ok(String msg) => _toast(
         msg,
         icon: Icons.check_circle,
         bg: Theme.of(context).colorScheme.primary,
         fg: Theme.of(context).colorScheme.onPrimary,
       );
-
   void _err(String msg) => _toast(
         msg,
         icon: Icons.error_outline,
         bg: Theme.of(context).colorScheme.error,
         fg: Theme.of(context).colorScheme.onError,
       );
-
   void _toast(
     String msg, {
     required IconData icon,
@@ -71,7 +68,7 @@ class _ProdutosPageState extends State<ProdutosPage> {
       ..hideCurrentSnackBar()
       ..showSnackBar(sb);
   }
-  // ===============================================================
+  // =================================================
 
   String _tsToString(dynamic v) {
     if (v == null) return '-';
@@ -103,7 +100,7 @@ class _ProdutosPageState extends State<ProdutosPage> {
       if (v != null) {
         final dt = (v as dynamic).toDate?.call();
         if (dt is DateTime) {
-          if (earliest == null || dt.isBefore(earliest)) earliest = dt;
+          earliest = (earliest == null || dt.isBefore(earliest!)) ? dt : earliest;
         }
       }
     }
@@ -195,13 +192,9 @@ class _ProdutosPageState extends State<ProdutosPage> {
             builder: (context, c) {
               final w = c.maxWidth;
               int cols = 1;
-              if (w >= 1200) {
-                cols = 4;
-              } else if (w >= 900) {
-                cols = 3;
-              } else if (w >= 600) {
-                cols = 2;
-              }
+              if (w >= 1200) cols = 4;
+              else if (w >= 900) cols = 3;
+              else if (w >= 600) cols = 2;
 
               return GridView.builder(
                 padding: const EdgeInsets.all(14),
@@ -220,7 +213,6 @@ class _ProdutosPageState extends State<ProdutosPage> {
                   final nome = (data['nome'] ?? '').toString();
                   final categoria = (data['categoria'] ?? '').toString();
 
-                  // Casts seguros
                   final qtdTotal = ((data['quantidade_total'] ?? data['quantidade']) as num?)?.toInt() ?? 0;
                   final minimo   = (data['estoque_minimo'] as num?)?.toInt() ?? 0;
                   final critico  = qtdTotal > 0 ? (qtdTotal <= minimo) : false;
@@ -246,6 +238,8 @@ class _ProdutosPageState extends State<ProdutosPage> {
                     ],
                     onOpenLotes: () => _openLotesSheet(context, produtoId: produtoId, produtoNome: nome),
                     onOpenEmail: null,
+                    // “Apagar” aparece dentro do menu ⋮
+                    onDelete: () => _confirmDeleteProduct(produtoId: produtoId, produtoNome: nome),
                   );
                 },
               );
@@ -261,7 +255,6 @@ class _ProdutosPageState extends State<ProdutosPage> {
     if (critico) return 'Abaixo do mínimo ($minimo)';
     return 'OK';
   }
-
   Color _estadoColor(BuildContext context, String estado) {
     if (estado.startsWith('Sem')) return const Color(0xFFE53935);
     if (estado.startsWith('Abaixo')) return const Color(0xFFFF9800);
@@ -282,7 +275,7 @@ class _ProdutosPageState extends State<ProdutosPage> {
       final today = DateTime.now();
       final v = DateTime(validade.year, validade.month, validade.day);
       final today0 = DateTime(today.year, today.month, today.day);
-      final notExpired = !v.isBefore(today0); // hoje conta como válido
+      final notExpired = !v.isBefore(today0);
       return qtd > 0 && notExpired;
     }
 
@@ -325,15 +318,9 @@ class _ProdutosPageState extends State<ProdutosPage> {
                   padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
                   child: Row(
                     children: [
-                      Text(
-                        'Lotes de "$produtoNome"',
-                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-                      ),
+                      Text('Lotes de "$produtoNome"', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
                       const Spacer(),
-                      IconButton(
-                        onPressed: () => Navigator.pop(context),
-                        icon: const Icon(Icons.close),
-                      ),
+                      IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
                     ],
                   ),
                 ),
@@ -341,24 +328,12 @@ class _ProdutosPageState extends State<ProdutosPage> {
                   child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                     stream: lotesQuery.snapshots(),
                     builder: (context, snap) {
-                      if (snap.hasError) {
-                        return const Center(child: Text('Erro ao listar lotes.'));
-                      }
-                      if (snap.connectionState == ConnectionState.waiting) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
+                      if (snap.hasError) return const Center(child: Text('Erro ao listar lotes.'));
+                      if (snap.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
                       final allDocs = snap.data?.docs ?? [];
-                      if (allDocs.isEmpty) {
-                        return const Center(child: Text('Nenhum lote cadastrado para este produto.'));
-                      }
+                      if (allDocs.isEmpty) return const Center(child: Text('Nenhum lote cadastrado para este produto.'));
 
-                      // Oculta lotes marcados como resolvidos
-                      final docs = allDocs.where((d) {
-                        final data = d.data();
-                        final resolvido = (data['resolvido'] ?? false) == true;
-                        return !resolvido;
-                      }).toList();
-
+                      final docs = allDocs.where((d) => (d.data()['resolvido'] ?? false) != true).toList();
                       final hoje = DateTime.now();
 
                       final mapped = docs.map((d) {
@@ -368,9 +343,7 @@ class _ProdutosPageState extends State<ProdutosPage> {
 
                         final ts = lote['validade'];
                         DateTime? validade;
-                        try {
-                          validade = (ts as dynamic).toDate?.call();
-                        } catch (_) {}
+                        try { validade = (ts as dynamic).toDate?.call(); } catch (_) {}
 
                         final ativo = isActive(validade, qtd);
                         final inativado = inatividadeEm(lote, validade, ativo);
@@ -427,7 +400,7 @@ class _ProdutosPageState extends State<ProdutosPage> {
                               final chip = _chipText(l.dias);
 
                               return _LoteRowCard(
-                                index: i + 1,
+                                index: i + 1, // mostra 1,2,3...
                                 codigo: l.codigo,
                                 qtd: l.qtd,
                                 validadeStr: l.validade == null ? '-' : _yyyyMmDd(l.validade!),
@@ -439,19 +412,19 @@ class _ProdutosPageState extends State<ProdutosPage> {
                                 precoTotal: l.precoTotal == null ? '—' : moneyFmt.format(l.precoTotal!),
                                 fornecedor: l.fornecedor,
                                 onSaida: () async {
-                                  final q = await _askQtd(context, title: 'Registrar SAÍDA (lote ${i + 1})');
+                                  final q = await _askQtd(context, title: 'Retirar do lote ${i + 1}');
                                   if (q == null) return;
 
+                                  // autenticar (admin ou operador)
                                   final session = SessionService();
+                                  String? operador = session.adminName ?? session.operatorName;
                                   if (!session.adminOverride && !session.hasValidOperator) {
                                     final cred = await _askCredenciais(context);
                                     if (cred == null) return;
                                     final res = await AuthzService().verifyWithRole(nome: cred.$1, chave: cred.$2);
                                     if (!mounted) return;
-                                    if (!res.ok) {
-                                      _err('Credenciais inválidas.');
-                                      return;
-                                    }
+                                    if (!res.ok) return _err('Credenciais inválidas.');
+                                    operador = res.nome;
                                     if (res.isAdmin) {
                                       await session.setAdminOverride(true, name: res.nome);
                                     } else {
@@ -459,55 +432,46 @@ class _ProdutosPageState extends State<ProdutosPage> {
                                     }
                                   }
 
-                                  if (q > l.qtd) {
-                                    _err('Quantidade maior que o disponível no lote.');
-                                    return;
-                                  }
-
                                   try {
-                                    await StockService().registrarSaida(
+                                    await _txSaida(
                                       produtoId: produtoId,
-                                      quantidade: q,
-                                      motivo: 'consumo',
-                                      operador: SessionService().adminName ?? SessionService().operatorName ?? 'operador',
                                       loteId: l.ref.id,
-                                      custoUnitSaida: l.precoUnit, // pode ser null
+                                      quantidade: q,
+                                      operador: operador ?? 'operador',
                                     );
-                                    if (mounted) _ok('Saída registada.');
+                                    if (mounted) _ok('Retirado com sucesso.');
                                   } catch (e) {
                                     if (mounted) _err('Erro ao registar saída: $e');
                                   }
                                 },
                                 onEntrada: () async {
-                                  final q = await _askQtd(context, title: 'Registrar ENTRADA (lote ${i + 1})');
+                                  final q = await _askQtd(context, title: 'Adicionar ao lote ${i + 1}');
                                   if (q == null) return;
 
+                                  // só admin
                                   final session = SessionService();
+                                  String? operador = session.adminName;
                                   if (!session.adminOverride) {
                                     final cred = await _askCredenciais(context, titulo: 'Autenticar Admin');
                                     if (cred == null) return;
                                     final res = await AuthzService().verifyWithRole(nome: cred.$1, chave: cred.$2);
                                     if (!mounted) return;
-                                    if (!res.ok || !res.isAdmin) {
-                                      _err('Apenas administrador pode lançar ENTRADA.');
-                                      return;
-                                    }
+                                    if (!res.ok || !res.isAdmin) return _err('Apenas administrador pode lançar ENTRADA.');
+                                    operador = res.nome;
                                     await session.setAdminOverride(true, name: res.nome);
                                   }
 
                                   try {
-                                    await StockService().registrarEntrada(
+                                    await _txEntrada(
                                       produtoId: produtoId,
-                                      quantidade: q,
-                                      motivo: 'compra',
-                                      operador: SessionService().adminName ?? SessionService().operatorName ?? 'admin',
                                       loteId: l.ref.id,
+                                      quantidade: q,
+                                      operador: operador ?? 'admin',
                                       precoUnit: l.precoUnit,
-                                      precoTotal: null,
                                       fornecedorId: l.fornecedorId,
                                       fornecedorNome: (l.fornecedor == '—') ? null : l.fornecedor,
                                     );
-                                    if (mounted) _ok('Entrada registada.');
+                                    if (mounted) _ok('Adicionado com sucesso.');
                                   } catch (e) {
                                     if (mounted) _err('Erro ao registar entrada: $e');
                                   }
@@ -559,13 +523,9 @@ class _ProdutosPageState extends State<ProdutosPage> {
   Color _borderFor(ColorScheme cs, DateTime? validade, DateTime hoje) {
     if (validade == null) return cs.outlineVariant;
     final v = DateTime(validade.year, validade.month, validade.day);
-    if (v.isBefore(DateTime(hoje.year, hoje.month, hoje.day))) {
-      return const Color(0xFFE53935);
-    } else if (v.difference(hoje).inDays <= 30) {
-      return const Color(0xFFFF9800);
-    } else {
-      return const Color(0xFF1DB954);
-    }
+    if (v.isBefore(DateTime(hoje.year, hoje.month, hoje.day))) return const Color(0xFFE53935);
+    if (v.difference(hoje).inDays <= 30) return const Color(0xFFFF9800);
+    return const Color(0xFF1DB954);
   }
 
   String _chipText(int? dias) {
@@ -677,6 +637,168 @@ class _ProdutosPageState extends State<ProdutosPage> {
       ),
     );
   }
+
+  // ============== APAGAR PRODUTO (menu ⋮) ==============
+  Future<void> _confirmDeleteProduct({
+    required String produtoId,
+    required String produtoNome,
+  }) async {
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Apagar produto'),
+        content: Text(
+          'Vai apagar o produto "$produtoNome" e TODOS os seus lotes. '
+          'Esta ação não pode ser desfeita.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFE53935)),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Apagar', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    if (sure != true) return;
+
+    final cred = await _askCredenciais(context, titulo: 'Autenticar Admin');
+    if (cred == null) return;
+    final res = await AuthzService().verifyWithRole(nome: cred.$1, chave: cred.$2);
+    if (!res.ok || !res.isAdmin) return _err('Apenas administrador pode apagar produtos.');
+
+    try {
+      await _logAcao(
+        acao: 'delete_produto',
+        produtoId: produtoId,
+        produtoNome: produtoNome,
+        operador: res.nome,
+      );
+      await _deleteProductAndLotes(produtoId);
+      if (mounted) _ok('Produto "$produtoNome" apagado.');
+    } catch (e) {
+      if (mounted) _err('Erro ao apagar: $e');
+    }
+  }
+
+  Future<void> _deleteProductAndLotes(String produtoId) async {
+    final docRef = FirebaseFirestore.instance.collection('produtos').doc(produtoId);
+    final lotesCol = docRef.collection('lotes');
+
+    while (true) {
+      final snap = await lotesCol.limit(300).get();
+      if (snap.docs.isEmpty) break;
+      final batch = FirebaseFirestore.instance.batch();
+      for (final d in snap.docs) {
+        batch.delete(d.reference);
+      }
+      await batch.commit();
+    }
+    await docRef.delete();
+  }
+
+  // ============== TRANSACÇÕES & LOGS ==============
+  Future<void> _txEntrada({
+    required String produtoId,
+    required String loteId,
+    required int quantidade,
+    required String operador,
+    double? precoUnit,
+    String? fornecedorId,
+    String? fornecedorNome,
+  }) async {
+    if (quantidade <= 0) throw 'Quantidade inválida';
+
+    final db = FirebaseFirestore.instance;
+    final prodRef = db.collection('produtos').doc(produtoId);
+    final loteRef = prodRef.collection('lotes').doc(loteId);
+    final now = DateTime.now();
+
+    await db.runTransaction((tx) async {
+      final prodSnap = await tx.get(prodRef);
+      final loteSnap = await tx.get(loteRef);
+
+      final totalAtual = ((prodSnap.data()?['quantidade_total'] ?? prodSnap.data()?['quantidade']) as num?)?.toInt() ?? 0;
+      final qtdLote   = (loteSnap.data()?['quantidade'] as num?)?.toInt() ?? 0;
+
+      tx.update(prodRef, {'quantidade_total': totalAtual + quantidade, 'atualizado_em': now});
+      tx.update(loteRef, {'quantidade': qtdLote + quantidade, 'atualizado_em': now});
+    });
+
+    await _logAcao(
+      acao: 'entrada',
+      produtoId: produtoId,
+      loteId: loteId,
+      quantidade: quantidade,
+      operador: operador,
+      precoUnit: precoUnit,
+      fornecedorId: fornecedorId,
+      fornecedorNome: fornecedorNome,
+    );
+  }
+
+  Future<void> _txSaida({
+    required String produtoId,
+    required String loteId,
+    required int quantidade,
+    required String operador,
+  }) async {
+    if (quantidade <= 0) throw 'Quantidade inválida';
+
+    final db = FirebaseFirestore.instance;
+    final prodRef = db.collection('produtos').doc(produtoId);
+    final loteRef = prodRef.collection('lotes').doc(loteId);
+    final now = DateTime.now();
+
+    await db.runTransaction((tx) async {
+      final prodSnap = await tx.get(prodRef);
+      final loteSnap = await tx.get(loteRef);
+
+      final totalAtual = ((prodSnap.data()?['quantidade_total'] ?? prodSnap.data()?['quantidade']) as num?)?.toInt() ?? 0;
+      final qtdLote   = (loteSnap.data()?['quantidade'] as num?)?.toInt() ?? 0;
+
+      if (quantidade > qtdLote) throw 'Quantidade maior que o disponível no lote';
+      if (quantidade > totalAtual) throw 'Quantidade maior que o total do produto';
+
+      tx.update(prodRef, {'quantidade_total': totalAtual - quantidade, 'atualizado_em': now});
+      tx.update(loteRef, {'quantidade': qtdLote - quantidade, 'atualizado_em': now});
+    });
+
+    await _logAcao(
+      acao: 'saida',
+      produtoId: produtoId,
+      loteId: loteId,
+      quantidade: quantidade,
+      operador: operador,
+    );
+  }
+
+  Future<void> _logAcao({
+    required String acao, // 'entrada' | 'saida' | 'delete_produto'
+    required String produtoId,
+    String? produtoNome,
+    String? loteId,
+    int? quantidade,
+    required String operador,
+    double? precoUnit,
+    String? fornecedorId,
+    String? fornecedorNome,
+  }) async {
+    final db = FirebaseFirestore.instance;
+    await db.collection('logs').add({
+      'acao': acao,
+      'produto_id': produtoId,
+      if (produtoNome != null) 'produto_nome': produtoNome,
+      if (loteId != null) 'lote_id': loteId,
+      if (quantidade != null) 'quantidade': quantidade,
+      'operador': operador,
+      if (precoUnit != null) 'preco_unit': precoUnit,
+      if (fornecedorId != null) 'fornecedor_id': fornecedorId,
+      if (fornecedorNome != null) 'fornecedor_nome': fornecedorNome,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+  }
 }
 
 // ===== Lines compactas =====
@@ -687,9 +809,7 @@ Widget _infoSimple(IconData icon, String label, String value) {
     children: [
       Icon(icon, size: 16),
       const SizedBox(width: 6),
-      Expanded(
-        child: Text('$label: $value', overflow: TextOverflow.ellipsis, style: style),
-      ),
+      Expanded(child: Text('$label: $value', overflow: TextOverflow.ellipsis, style: style)),
     ],
   );
 }
@@ -712,9 +832,7 @@ class _InfoFutureLine extends StatelessWidget {
           children: [
             Icon(icon, size: 16, color: onSurface.withOpacity(.8)),
             const SizedBox(width: 6),
-            Expanded(
-              child: Text('$label: $value', overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15)),
-            ),
+            Expanded(child: Text('$label: $value', overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15))),
           ],
         );
       },
@@ -722,7 +840,7 @@ class _InfoFutureLine extends StatelessWidget {
   }
 }
 
-// ====== Card mais compacto e com badge forte ======
+// ====== Card de produto com menu ⋮ ======
 class _ProdutoQuickCard extends StatelessWidget {
   final String title;
   final Color headerColor;
@@ -731,6 +849,7 @@ class _ProdutoQuickCard extends StatelessWidget {
   final List<Widget> lines;
   final VoidCallback onOpenLotes;
   final VoidCallback? onOpenEmail;
+  final VoidCallback? onDelete;
 
   const _ProdutoQuickCard({
     required this.title,
@@ -740,6 +859,7 @@ class _ProdutoQuickCard extends StatelessWidget {
     required this.lines,
     required this.onOpenLotes,
     this.onOpenEmail,
+    this.onDelete,
   });
 
   @override
@@ -770,11 +890,7 @@ class _ProdutoQuickCard extends StatelessWidget {
                     title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: onPrimary,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 16.5,
-                    ),
+                    style: TextStyle(color: onPrimary, fontWeight: FontWeight.w800, fontSize: 16.5),
                   ),
                 ),
                 Container(
@@ -782,24 +898,18 @@ class _ProdutoQuickCard extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: estadoColor,
                     borderRadius: BorderRadius.circular(999),
-                    boxShadow: [
-                      BoxShadow(color: estadoColor.withOpacity(.25), blurRadius: 6, offset: const Offset(0, 2)),
-                    ],
+                    boxShadow: [BoxShadow(color: estadoColor.withOpacity(.25), blurRadius: 6, offset: const Offset(0, 2))],
                   ),
                   child: Text(
                     estadoLabel.toUpperCase(),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 12.5,
-                    ),
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 12.5),
                   ),
                 ),
               ],
             ),
           ),
 
-          // Corpo
+          // Corpo + ações
           Expanded(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
@@ -832,6 +942,24 @@ class _ProdutoQuickCard extends StatelessWidget {
                             textStyle: const TextStyle(fontWeight: FontWeight.w700),
                           ),
                         ),
+                        const SizedBox(width: 4),
+                        // MENU ⋮
+                        PopupMenuButton<String>(
+                          tooltip: 'Mais',
+                          onSelected: (v) {
+                            if (v == 'delete' && onDelete != null) onDelete!();
+                          },
+                          itemBuilder: (ctx) => [
+                            const PopupMenuItem(value: 'delete', child: Row(
+                              children: [
+                                Icon(Icons.delete_forever_rounded, color: Color(0xFFE53935)),
+                                SizedBox(width: 8),
+                                Text('Apagar produto'),
+                              ],
+                            )),
+                          ],
+                          icon: const Icon(Icons.more_vert_rounded),
+                        ),
                       ],
                     ),
                   ],
@@ -845,7 +973,7 @@ class _ProdutoQuickCard extends StatelessWidget {
   }
 }
 
-// ====== Card/Row de LOTE com status à esquerda + preços + fornecedor ======
+// ====== Card/Row de LOTE ======
 class _LoteRowCard extends StatelessWidget {
   final int index;
   final String codigo;
@@ -855,8 +983,8 @@ class _LoteRowCard extends StatelessWidget {
   final bool ativo;
   final Color borderColor;
   final Color statusColor;
-  final String precoUnit;  // "Kz 1.000,00" ou "—"
-  final String precoTotal; // idem
+  final String precoUnit;
+  final String precoTotal;
   final String? inativadoEm;
   final String fornecedor;
 
@@ -892,7 +1020,7 @@ class _LoteRowCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // Faixa de status à esquerda
+          // Faixa de status à esquerda + índice
           Container(
             width: 76,
             height: 120,
@@ -904,15 +1032,17 @@ class _LoteRowCard extends StatelessWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(ativo ? Icons.verified_rounded : Icons.block_rounded, color: statusColor),
+                CircleAvatar(
+                  radius: 12,
+                  backgroundColor: statusColor,
+                  child: Text('$index', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
+                ),
                 const SizedBox(height: 6),
+                Icon(ativo ? Icons.verified_rounded : Icons.block_rounded, color: statusColor),
+                const SizedBox(height: 4),
                 Text(
                   ativo ? 'ATIVO' : 'INATIVO',
-                  style: TextStyle(
-                    color: statusColor,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: .5,
-                  ),
+                  style: TextStyle(color: statusColor, fontWeight: FontWeight.w900, letterSpacing: .5),
                 ),
               ],
             ),
@@ -925,7 +1055,6 @@ class _LoteRowCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Título + badge
                   Row(
                     children: [
                       Expanded(
@@ -942,10 +1071,7 @@ class _LoteRowCard extends StatelessWidget {
                           borderRadius: BorderRadius.circular(999),
                           border: Border.all(color: cs.onSurface.withOpacity(.28)),
                         ),
-                        child: Text(
-                          chipText,
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
+                        child: Text(chipText, style: const TextStyle(fontWeight: FontWeight.w700)),
                       ),
                     ],
                   ),
@@ -970,9 +1096,7 @@ class _LoteRowCard extends StatelessWidget {
                           onPressed: onSaida,
                           icon: const Icon(Icons.remove_circle_rounded, color: Color(0xFFE53935)),
                           label: const Text('Saída', style: TextStyle(color: Color(0xFFE53935))),
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: Color(0xFFE53935)),
-                          ),
+                          style: OutlinedButton.styleFrom(side: const BorderSide(color: Color(0xFFE53935))),
                         ),
                         const SizedBox(width: 8),
                         FilledButton.icon(
@@ -997,8 +1121,7 @@ class _LoteRowCard extends StatelessWidget {
       children: [
         Icon(icon, size: 16),
         const SizedBox(width: 4),
-        if (label.isNotEmpty)
-          Text('$label: ', style: const TextStyle(fontWeight: FontWeight.w700)),
+        if (label.isNotEmpty) Text('$label: ', style: const TextStyle(fontWeight: FontWeight.w700)),
         Text(value),
       ],
     );
@@ -1013,6 +1136,4 @@ Widget _sectionTitle(String t) {
   );
 }
 
-Widget _emptyBox(String msg) => Center(
-      child: Padding(padding: const EdgeInsets.all(12), child: Text(msg)),
-    );
+Widget _emptyBox(String msg) => Center(child: Padding(padding: const EdgeInsets.all(12), child: Text(msg)));
