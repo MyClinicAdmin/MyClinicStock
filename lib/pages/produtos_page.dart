@@ -70,6 +70,43 @@ class _ProdutosPageState extends State<ProdutosPage> {
   }
   // =================================================
 
+  // ===================== MODAL INFO (SUCESSO) =====================
+  Future<void> _infoModal({
+    required String title,
+    required String message,
+    IconData icon = Icons.check_circle_outline,
+    Color? color,
+    String buttonText = 'OK',
+  }) async {
+    final cs = Theme.of(context).colorScheme;
+    final c = color ?? cs.primary;
+
+    await showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        titlePadding: const EdgeInsets.fromLTRB(20, 18, 20, 6),
+        contentPadding: const EdgeInsets.fromLTRB(20, 6, 20, 6),
+        actionsPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+        title: Row(
+          children: [
+            Icon(icon, color: c),
+            const SizedBox(width: 8),
+            Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w800))),
+          ],
+        ),
+        content: Text(message),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(buttonText),
+          ),
+        ],
+      ),
+    );
+  }
+  // ===============================================================
+
   String _tsToString(dynamic v) {
     if (v == null) return '-';
     try {
@@ -439,7 +476,14 @@ class _ProdutosPageState extends State<ProdutosPage> {
                                       quantidade: q,
                                       operador: operador ?? 'operador',
                                     );
-                                    if (mounted) _ok('Retirado com sucesso.');
+                                    if (mounted) {
+                                      _ok('Retirado com sucesso.');
+                                      await _infoModal(
+                                        title: 'Saída registada',
+                                        message: 'Foram retiradas $q unidade(s) do lote selecionado.',
+                                        icon: Icons.remove_circle_outline,
+                                      );
+                                    }
                                   } catch (e) {
                                     if (mounted) _err('Erro ao registar saída: $e');
                                   }
@@ -471,7 +515,14 @@ class _ProdutosPageState extends State<ProdutosPage> {
                                       fornecedorId: l.fornecedorId,
                                       fornecedorNome: (l.fornecedor == '—') ? null : l.fornecedor,
                                     );
-                                    if (mounted) _ok('Adicionado com sucesso.');
+                                    if (mounted) {
+                                      _ok('Adicionado com sucesso.');
+                                      await _infoModal(
+                                        title: 'Entrada registada',
+                                        message: 'Foram adicionadas $q unidade(s) ao lote selecionado.',
+                                        icon: Icons.add_circle_outline,
+                                      );
+                                    }
                                   } catch (e) {
                                     if (mounted) _err('Erro ao registar entrada: $e');
                                   }
@@ -676,7 +727,16 @@ class _ProdutosPageState extends State<ProdutosPage> {
         operador: res.nome,
       );
       await _deleteProductAndLotes(produtoId);
-      if (mounted) _ok('Produto "$produtoNome" apagado.');
+      if (mounted) {
+        _ok('Produto "$produtoNome" apagado.');
+        await _infoModal(
+          title: 'Produto apagado',
+          message: 'O produto "$produtoNome" e todos os seus lotes foram eliminados com sucesso.',
+          icon: Icons.delete_forever_outlined,
+          color: const Color(0xFFE53935),
+          buttonText: 'Fechar',
+        );
+      }
     } catch (e) {
       if (mounted) _err('Erro ao apagar: $e');
     }
@@ -950,13 +1010,16 @@ class _ProdutoQuickCard extends StatelessWidget {
                             if (v == 'delete' && onDelete != null) onDelete!();
                           },
                           itemBuilder: (ctx) => [
-                            const PopupMenuItem(value: 'delete', child: Row(
-                              children: [
-                                Icon(Icons.delete_forever_rounded, color: Color(0xFFE53935)),
-                                SizedBox(width: 8),
-                                Text('Apagar produto'),
-                              ],
-                            )),
+                            const PopupMenuItem(
+                              value: 'delete',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.delete_forever_rounded, color: Color(0xFFE53935)),
+                                  SizedBox(width: 8),
+                                  Text('Apagar produto'),
+                                ],
+                              ),
+                            ),
                           ],
                           icon: const Icon(Icons.more_vert_rounded),
                         ),
