@@ -1,16 +1,74 @@
-# kwalps_st
+📦 My Stock
 
-A new Flutter project.
+O My Stock é uma aplicação Flutter desenvolvida para gestão de stocks em clínicas.
+🚀 Tecnologias Utilizadas
 
-## Getting Started
+📱 Flutter
 
-This project is a starting point for a Flutter application.
+🔥 Firebase Core & Firestore
 
-A few resources to get you started if this is your first Flutter project:
+💾 Shared Preferences
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+🌍 Intl (datas e números)
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+📂 File Picker + Excel
+
+🔗 URL Launcher
+
+⚡ Instalação e Execução
+git clone https://github.com/MyClinicSoftware/MyStock.git
+cd MyStock
+flutter pub get
+flutter run
+
+
+⚠️ É necessário configurar o Firebase e incluir o arquivo firebase_options.dart em lib/.
+
+👥 Perfis de Utilizador
+
+👤 Operador → Registra entradas e saídas, consulta produtos e lotes.
+
+🛡️ Administrador → Além das funções do operador, pode gerir utilizadores, apagar produtos/lotes e aceder ao histórico.
+
+📊 Funcionalidades
+
+📦 Gestão de Produtos → cadastro, categorias e stock mínimo.
+
+🧾 Gestão de Lotes → validade, fornecedor, preços.
+
+🔔 Alertas → produtos abaixo do mínimo ou próximos do vencimento.
+
+🗂 Administração → gestão de utilizadores e logs.
+
+📧 Email (em desenvolvimento) → envio de pedidos de reposição a fornecedores.
+
+🗂 Estrutura do Projeto
+lib/
+├── pages/
+│   ├── home_page.dart
+│   ├── produtos_page.dart
+│   ├── enviar_email_page.dart
+│   ├── admin_page.dart
+│   └── login_page.dart
+│
+├── services/
+│   ├── stock_service.dart
+│   ├── session_service.dart
+│   └── authz_service.dart
+│
+├── branding/
+│   └── my_stock_logo.png
+│
+└── main.dart
+
+📸 Demonstrações
+
+🏠 Página inicial com atalhos
+
+📋 Cards de produtos com estado do stock
+
+📑 Listagem de lotes com validades e fornecedores
+
+➕ Modal para registo de entrada/saída
+
+🚧 Página de email em construção
