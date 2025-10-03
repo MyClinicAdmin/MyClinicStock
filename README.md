@@ -1,58 +1,92 @@
-📦 My Stock
+Percebi, Fonseca ⚡
+O problema é que no GitHub o README só entende **Markdown**.
+Se você colar o texto com emojis direto sem usar os blocos corretos, pode parecer "esquisito".
 
-Sistema de gestão de stock desenvolvido para MyClinic, permitindo o controlo eficiente de produtos
-🚀 Tecnologias Utilizadas
+Aqui vai a versão **corrigida em Markdown**, simples e reconhecida pelo GitHub:
 
-📱 Flutter
+````markdown
+# 📦 My Stock
 
-🔥 Firebase Core & Firestore
+Sistema de gestão de stock desenvolvido para **MyClinic**, permitindo o controlo eficiente de produtos.
 
-💾 Shared Preferences
+---
 
-🌍 Intl (datas e números)
+## 🚀 Tecnologias Utilizadas
+- 📱 Flutter  
+- 🔥 Firebase Core & Firestore  
+- 💾 Shared Preferences  
+- 🌍 Intl (datas e números)  
+- 📂 File Picker + Excel  
+- 🔗 URL Launcher  
 
-📂 File Picker + Excel
+---
 
-🔗 URL Launcher
-
-⚡ Instalação e Execução
-
+## ⚡ Instalação e Execução
+```bash
 git clone https://github.com/MyClinicSoftware/MyStock.git
-
 cd MyStock
 flutter pub get
 flutter run
+````
 
+⚠️ É necessário configurar o **Firebase** e incluir o arquivo `firebase_options.dart` em `lib/`.
 
-⚠️ É necessário configurar o Firebase e incluir o arquivo firebase_options.dart em lib/.
+---
 
-👥 Perfis de Utilizador
+## 👥 Perfis de Utilizador
 
-👤 Operador → Registra entradas e saídas, consulta produtos e lotes.
+* 👤 **Operador** → Registra entradas e saídas, consulta produtos e lotes.
+* 🛡️ **Administrador** → Além das funções do operador, pode gerir utilizadores, apagar produtos/lotes e aceder ao histórico.
 
-🛡️ Administrador → Além das funções do operador, pode gerir utilizadores, apagar produtos/lotes e aceder ao histórico.
+---
 
-📊 Funcionalidades
+## 📊 Funcionalidades
 
-📦 Gestão de Produtos → cadastro, categorias e stock mínimo.
+* 📦 **Gestão de Produtos** → cadastro, categorias e stock mínimo.
+* 🧾 **Gestão de Lotes** → validade, fornecedor, preços.
+* 🔔 **Alertas** → produtos abaixo do mínimo ou próximos do vencimento.
+* 🗂 **Administração** → gestão de utilizadores e logs.
+* 📧 **Email** *(em desenvolvimento)* → envio de pedidos de reposição a fornecedores.
 
-🧾 Gestão de Lotes → validade, fornecedor, preços.
+---
 
-🔔 Alertas → produtos abaixo do mínimo ou próximos do vencimento.
+## 🗂 Estrutura do Projeto
 
-🗂 Administração → gestão de utilizadores e logs.
+```
+lib/
+├── pages/
+│   ├── home_page.dart
+│   ├── produtos_page.dart
+│   ├── enviar_email_page.dart
+│   ├── admin_page.dart
+│   └── login_page.dart
+│
+├── services/
+│   ├── stock_service.dart
+│   ├── session_service.dart
+│   └── authz_service.dart
+│
+├── branding/
+│   └── my_stock_logo.png
+│
+└── main.dart
+```
 
-📧 Email (em desenvolvimento) → envio de pedidos de reposição a fornecedores.
+---
 
-🗂 Estrutura do Projeto
-📸 Demonstrações
+## 📸 Demonstrações
+
 (Em Breve)
-🏠 Página inicial com atalhos
 
-📋 Cards de produtos com estado do stock
+* 🏠 Página inicial com atalhos
+* 📋 Cards de produtos com estado do stock
+* 📑 Listagem de lotes com validades e fornecedores
+* ➕ Modal para registo de entrada/saída
+* 🚧 Página de email em construção
 
-📑 Listagem de lotes com validades e fornecedores
+```
 
-➕ Modal para registo de entrada/saída
+👉 Se você copiar esse bloco e colar no README.md do GitHub, vai aparecer **formatado corretamente** (com títulos, listas, blocos de código, emojis, tudo bonitinho).  
 
-🚧 Página de email em construção
+Quer que eu faça também uma **versão super resumida** para o topo (só 📦 descrição + 🚀 instalação + 📊 funcionalidades), e depois deixar a versão detalhada em baixo?
+```
