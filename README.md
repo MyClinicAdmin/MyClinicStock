@@ -16,7 +16,9 @@ Sistema de gestão de stock desenvolvido para MyClinic, permitindo o controlo ef
 🔗 URL Launcher
 
 ⚡ Instalação e Execução
+
 git clone https://github.com/MyClinicSoftware/MyStock.git
+
 cd MyStock
 flutter pub get
 flutter run
