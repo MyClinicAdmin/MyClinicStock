@@ -1,10 +1,3 @@
-Percebi, Fonseca ⚡
-O problema é que no GitHub o README só entende **Markdown**.
-Se você colar o texto com emojis direto sem usar os blocos corretos, pode parecer "esquisito".
-
-Aqui vai a versão **corrigida em Markdown**, simples e reconhecida pelo GitHub:
-
-````markdown
 # 📦 My Stock
 
 Sistema de gestão de stock desenvolvido para **MyClinic**, permitindo o controlo eficiente de produtos.
