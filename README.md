@@ -77,9 +77,3 @@ lib/
 * ➕ Modal para registo de entrada/saída
 * 🚧 Página de email em construção
 
-```
-
-👉 Se você copiar esse bloco e colar no README.md do GitHub, vai aparecer **formatado corretamente** (com títulos, listas, blocos de código, emojis, tudo bonitinho).  
-
-Quer que eu faça também uma **versão super resumida** para o topo (só 📦 descrição + 🚀 instalação + 📊 funcionalidades), e depois deixar a versão detalhada em baixo?
-```
