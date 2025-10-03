@@ -1,6 +1,6 @@
 📦 My Stock
 
-O My Stock é uma aplicação Flutter desenvolvida para gestão de stocks em clínicas.
+Sistema de gestão de stock desenvolvido para MyClinic, permitindo o controlo eficiente de produtos
 🚀 Tecnologias Utilizadas
 
 📱 Flutter
@@ -43,26 +43,8 @@ flutter run
 📧 Email (em desenvolvimento) → envio de pedidos de reposição a fornecedores.
 
 🗂 Estrutura do Projeto
-lib/
-├── pages/
-│   ├── home_page.dart
-│   ├── produtos_page.dart
-│   ├── enviar_email_page.dart
-│   ├── admin_page.dart
-│   └── login_page.dart
-│
-├── services/
-│   ├── stock_service.dart
-│   ├── session_service.dart
-│   └── authz_service.dart
-│
-├── branding/
-│   └── my_stock_logo.png
-│
-└── main.dart
-
 📸 Demonstrações
-
+(Em Breve)
 🏠 Página inicial com atalhos
 
 📋 Cards de produtos com estado do stock
